@@ -7,7 +7,7 @@ agents both follow.
 ## Before you start
 
 - For anything larger than a small fix, open a change request first
-  ([issue chooser](https://github.com/edemaistre/unity-plugin/issues/new/choose))
+  ([issue chooser](https://github.com/scenario-labs/unity-plugin/issues/new/choose))
   so the approach can be agreed before you write it.
 - Read the spending rules in `AGENTS.md`: price check first, single-use quotes,
   paid calls sent once, `SCENARIO_NO_SPEND=1` honored. Every change keeps them.

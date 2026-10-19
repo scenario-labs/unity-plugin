@@ -10,12 +10,12 @@ page says where to look and whom to ask.
 - For models, Creative Units and account settings, see the
   [Scenario Knowledge Base](https://help.scenario.com).
 - For release changes, read the [changelog](Packages/com.scenario.unity/CHANGELOG.md)
-  and the [releases](https://github.com/edemaistre/unity-plugin/releases).
+  and the [releases](https://github.com/scenario-labs/unity-plugin/releases).
 
 ## Bugs, change requests and questions
 
-Use the [issue chooser](https://github.com/edemaistre/unity-plugin/issues/new/choose).
-Search the [existing issues](https://github.com/edemaistre/unity-plugin/issues)
+Use the [issue chooser](https://github.com/scenario-labs/unity-plugin/issues/new/choose).
+Search the [existing issues](https://github.com/scenario-labs/unity-plugin/issues)
 first. For a question, open a blank issue with a title starting with "Question:".
 
 Before filing a bug, collect:

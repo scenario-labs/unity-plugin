@@ -5,7 +5,7 @@ Version 0.1.0 <!-- x-release-please-version -->. Unity 6.0 or later.
 ## 1. Install and open
 
 1. **Window > Package Management > Package Manager**, **+**, **Install package from git URL**:
-   `https://github.com/edemaistre/unity-plugin.git?path=/Packages/com.scenario.unity`
+   `https://github.com/scenario-labs/unity-plugin.git?path=/Packages/com.scenario.unity`
 2. **Window > Scenario**, or Alt+Shift+S (rebind it in **Edit > Shortcuts**, under Scenario).
 
 The window docks anywhere and works from 320 px wide. Above 560 px the navigation rail shows labels and some actions show their text.

@@ -8,7 +8,7 @@ copies may remain accessible after deletion.
 
 Report privately through any of these channels:
 
-- [Open a private vulnerability report](https://github.com/edemaistre/unity-plugin/security/advisories/new)
+- [Open a private vulnerability report](https://github.com/scenario-labs/unity-plugin/security/advisories/new)
   from this repository's Security tab.
 - Email [support@scenario.com](mailto:support@scenario.com) with "security" in the subject.
 - Use in-app support at [app.scenario.com](https://app.scenario.com).
@@ -45,7 +45,7 @@ public issue tracker.
 
 ## Supported versions
 
-Security fixes target the [latest release](https://github.com/edemaistre/unity-plugin/releases).
+Security fixes target the [latest release](https://github.com/scenario-labs/unity-plugin/releases).
 Older releases have no support branch.
 
 ## Secrets in issues and pull requests

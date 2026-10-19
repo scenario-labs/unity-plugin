@@ -8,9 +8,9 @@
     "name": "Scenario",
     "url": "https://www.scenario.com"
   },
-  "documentationUrl": "https://github.com/edemaistre/unity-plugin#readme",
-  "changelogUrl": "https://github.com/edemaistre/unity-plugin/blob/main/Packages/com.scenario.unity/CHANGELOG.md",
-  "licensesUrl": "https://github.com/edemaistre/unity-plugin/blob/main/Packages/com.scenario.unity/LICENSE.md",
+  "documentationUrl": "https://github.com/scenario-labs/unity-plugin#readme",
+  "changelogUrl": "https://github.com/scenario-labs/unity-plugin/blob/main/Packages/com.scenario.unity/CHANGELOG.md",
+  "licensesUrl": "https://github.com/scenario-labs/unity-plugin/blob/main/Packages/com.scenario.unity/LICENSE.md",
   "keywords": [
     "scenario",
     "ai",

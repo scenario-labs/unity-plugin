@@ -7,6 +7,6 @@ Open **Window > Scenario** (Alt+Shift+S) and sign in with your Scenario account 
 - [User guide](Documentation~/USER_GUIDE.md)
 - [Agent skill](Documentation~/agent-skill/SKILL.md)
 - [Changelog](CHANGELOG.md)
-- Source, issues and the full README: https://github.com/edemaistre/unity-plugin
+- Source, issues and the full README: https://github.com/scenario-labs/unity-plugin
 
 Editor only: nothing from this package ships in a player build. MIT license.

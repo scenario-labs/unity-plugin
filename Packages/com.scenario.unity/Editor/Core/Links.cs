@@ -11,7 +11,7 @@ namespace Scenario.Editor.Core
     {
         public const string App = "https://app.scenario.com";
         public const string ApiKeys = App + "/settings/organization-api-keys";
-        public const string Repository = "https://github.com/edemaistre/unity-plugin";
+        public const string Repository = "https://github.com/scenario-labs/unity-plugin";
 
         public static string Home(string teamId = "", string projectId = "") => App + "/" + Scope("?", teamId, projectId);
 

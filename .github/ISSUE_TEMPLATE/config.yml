@@ -4,7 +4,7 @@ contact_links:
     url: https://app.scenario.com
     about: Anything tied to your account is private. Use in-app support or support@scenario.com, not a public issue.
   - name: User guide
-    url: https://github.com/edemaistre/unity-plugin/blob/main/Packages/com.scenario.unity/Documentation~/USER_GUIDE.md
+    url: https://github.com/scenario-labs/unity-plugin/blob/main/Packages/com.scenario.unity/Documentation~/USER_GUIDE.md
     about: Every view step by step, job states, troubleshooting.
   - name: Scenario Knowledge Base
     url: https://help.scenario.com
