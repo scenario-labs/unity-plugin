@@ -23,6 +23,8 @@ const houseRules = {
 export default {
   extends: ["@commitlint/config-conventional"],
   plugins: [houseRules],
+  // Merge commits ("Merge feat/x: ...") come from git merge --no-ff and carry no type.
+  ignores: [(message) => message.startsWith("Merge ")],
   rules: {
     "header-max-length": [2, "always", 120],
     // Off: long URLs and Co-Authored-By trailers exceed the 100-character default.
