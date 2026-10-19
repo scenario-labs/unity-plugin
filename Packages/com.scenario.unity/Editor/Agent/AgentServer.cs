@@ -202,15 +202,16 @@ namespace Scenario.Editor.Agent
                     await Reply(response, 403, Message("Origin not allowed."));
                     return;
                 }
-                if (request.Url.AbsolutePath.TrimEnd('/') != "/mcp")
-                {
-                    await Reply(response, 404, Message("Not found. The endpoint is /mcp."));
-                    return;
-                }
+                // The token comes before the path, so no caller reaches routing without it.
                 if (!Authorized(request.Headers["Authorization"]))
                 {
                     response.AddHeader("WWW-Authenticate", "Bearer");
                     await Reply(response, 401, Message("Missing or wrong bearer token. Copy the setup from Scenario > Agent in Unity."));
+                    return;
+                }
+                if (request.Url.AbsolutePath.TrimEnd('/') != "/mcp")
+                {
+                    await Reply(response, 404, Message("Not found. The endpoint is /mcp."));
                     return;
                 }
                 if (request.HttpMethod == "DELETE")

@@ -415,6 +415,10 @@ namespace Scenario.Editor.Tests
             yield return Await(wrongPath);
             Assert.AreEqual(404, wrongPath.Result.Status);
 
+            var wrongPathNoToken = Http(HttpMethod.Post, url.Replace("/mcp", "/other"), ping, token: null);
+            yield return Await(wrongPathNoToken);
+            Assert.AreEqual(401, wrongPathNoToken.Result.Status, "the token is checked before the path");
+
             var get = Http(HttpMethod.Get, url, null);
             yield return Await(get);
             Assert.AreEqual(405, get.Result.Status);
