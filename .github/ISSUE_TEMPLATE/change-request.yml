@@ -1,0 +1,60 @@
+name: Change request
+description: A missing capability, unclear guidance, or a workflow that costs more than it should
+type: Feature
+projects: ["scenario-labs/31"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue is public and permanent. Leave out API keys and secrets, tokens, signed asset URLs, team and project ids, e-mail addresses, and any unreleased project detail.
+
+        Requests for new Scenario models or platform features belong with Scenario support; this tracker is for the Unity package. Check the open issues first.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to get done, and what stops you today? Describe the goal, not the solution.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Create (a type, a model, the form)
+        - Next steps
+        - Library, Jobs or Workflows
+        - Agent bridge (MCP)
+        - C# API
+        - Import and placement
+        - Sign in, settings or install
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do now
+      description: The current workaround and what it costs, in steps, minutes or credits.
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like instead
+      description: Optional. A shape you have in mind, and any alternative you already rejected and why.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: How often this comes up and who it affects. Say if it blocks you outright.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched open and closed issues for a duplicate.
+          required: true
+        - label: This request contains no keys, tokens, signed asset URLs or personal data.
+          required: true

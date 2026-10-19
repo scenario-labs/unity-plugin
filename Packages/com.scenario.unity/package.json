@@ -1,0 +1,33 @@
+{
+  "name": "com.scenario.unity",
+  "version": "0.2.0",
+  "displayName": "Scenario",
+  "description": "Generate images, video, 3D models, character animations, materials, skyboxes and audio with every Scenario model, inside the Unity Editor. Retexture, edit, remesh, rig, animate and split 3D models in place. Results land as wired Unity assets with their provenance. Agents (Claude Code, Codex, Cursor) can drive it through a local MCP server.",
+  "unity": "6000.0",
+  "author": {
+    "name": "Scenario",
+    "url": "https://www.scenario.com"
+  },
+  "documentationUrl": "https://github.com/scenario-labs/unity-plugin#readme",
+  "changelogUrl": "https://github.com/scenario-labs/unity-plugin/blob/main/Packages/com.scenario.unity/CHANGELOG.md",
+  "licensesUrl": "https://github.com/scenario-labs/unity-plugin/blob/main/Packages/com.scenario.unity/LICENSE.md",
+  "keywords": [
+    "scenario",
+    "ai",
+    "generative",
+    "image",
+    "3d",
+    "video",
+    "audio",
+    "mcp",
+    "agent"
+  ],
+  "dependencies": {
+    "com.unity.cloud.gltfast": "6.20.0",
+    "com.unity.nuget.newtonsoft-json": "3.2.2",
+    "com.unity.modules.imageconversion": "1.0.0",
+    "com.unity.modules.uielements": "1.0.0",
+    "com.unity.modules.video": "1.0.0",
+    "com.unity.modules.audio": "1.0.0"
+  }
+}

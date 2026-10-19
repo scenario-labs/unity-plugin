@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Repository hygiene that needs no Unity: house style and valid package metadata.
+  hygiene:
+    name: hygiene
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: No em dashes in code or docs
+        run: |
+          # Recorded server replies keep the server's text as it was. The pattern is
+          # built from its UTF-8 bytes so this file contains no em dash itself.
+          dash="$(printf '\342\200\224')"
+          if git grep -nI "$dash" -- . ':!pnpm-lock.yaml' ':!Packages/com.scenario.unity/Tests/Editor/Fixtures'; then
+            echo "::error::Em dashes found (house style)"
+            exit 1
+          fi
+      - name: Package metadata is valid JSON with matching versions
+        run: |
+          python3 - <<'PY'
+          import json, re
+          pkg = json.load(open("Packages/com.scenario.unity/package.json"))
+          manifest = json.load(open(".release-please-manifest.json"))
+          client = open("Packages/com.scenario.unity/Editor/Core/McpClient.cs").read()
+          version = re.search(r'const string Version = "([^"]+)"', client).group(1)
+          assert pkg["version"] == manifest["."] == version, (pkg["version"], manifest["."], version)
+          print("version", version)
+          PY
+      - name: Every package file has its .meta
+        run: |
+          missing=0
+          while IFS= read -r path; do
+            case "$path" in *.meta) continue ;; esac
+            if [ ! -f "$path.meta" ]; then echo "missing $path.meta"; missing=1; fi
+          done < <(git ls-files Packages/com.scenario.unity | grep -v '/Documentation~/')
+          exit $missing
+
+  # EditMode tests in Unity through GameCI. They need a Unity license: set the
+  # repository secrets UNITY_LICENSE (the .ulf contents), UNITY_EMAIL and
+  # UNITY_PASSWORD. Without them the job is skipped, not failed.
+  tests:
+    name: tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+    steps:
+      - name: Unity license present
+        id: license
+        run: |
+          if [ -n "$UNITY_LICENSE" ]; then echo "present=true" >> "$GITHUB_OUTPUT"; else echo "present=false" >> "$GITHUB_OUTPUT"; echo "::notice::No UNITY_LICENSE secret: Unity tests skipped"; fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.license.outputs.present == 'true'
+        with:
+          persist-credentials: false
+      - uses: game-ci/unity-test-runner@fa6ced25861c16ef56187828c43f76d00df43a23 # v4.3.2
+        if: steps.license.outputs.present == 'true'
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: .
+          testMode: editmode
+          # The Linux image has no graphics device: the window tests skip themselves.
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: EditMode results
+
+  # The one check a ruleset should require from this workflow. Do not rename it.
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [hygiene, tests]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job to succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            if [ "$result" != success ] && [ "$result" != skipped ]; then
+              echo "::error::A CI job did not succeed: $RESULTS"
+              exit 1
+            fi
+          done

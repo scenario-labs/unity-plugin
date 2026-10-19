@@ -1,0 +1,105 @@
+name: Bug report
+description: The window, a generation, an import, the agent bridge or the C# API behaves wrong
+type: Bug
+projects: ["scenario-labs/31"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue is public and permanent. Before you submit, remove your API key and secret, tokens, signed asset URLs, e-mail addresses, local paths with your username, and any prompt or artwork you do not want published. Team and project ids identify your account: leave them out.
+
+        Would rather not post in public? Send the same fields to support@scenario.com. Account, billing, credit and security problems always go there or to in-app support at https://app.scenario.com.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened
+      description: One or two sentences. The symptom, not the suspected cause.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Image
+        - Video
+        - 3D
+        - Audio
+        - Material
+        - Skybox
+        - All models or a workflow
+        - Library or Jobs
+        - Sign in, settings or the window itself
+        - Agent bridge (MCP)
+        - C# API
+        - Install or update
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps. Name the model, the settings you changed and what was selected in the scene.
+      placeholder: |
+        1. Select a cube, open Create > Material, keep PATINA Material defaults
+        2. Type "<prompt>", press Generate
+        3. Look at the cube after the job finishes
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: The verbatim error text from the window or the Console. Paste text, not a screenshot, so it is searchable.
+    validations:
+      required: true
+  - type: input
+    id: unity_version
+    attributes:
+      label: Unity version and render pipeline
+      description: From Help > About Unity.
+      placeholder: 6000.3.21f1, URP
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: package_version
+    attributes:
+      label: Package version
+      description: From the Package Manager, or Settings > About in the Scenario window.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: "Only ids you can share publicly: the job id and model from the Jobs view or the Inspector header, the UTC time, and the Diagnostics report from Settings. No signed asset URLs, they are credentials."
+      placeholder: |
+        job id: ...
+        model: ...
+        when: <UTC date and time>
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched open and closed issues for a duplicate.
+          required: true
+        - label: This report contains no keys, tokens, signed asset URLs or personal data.
+          required: true
