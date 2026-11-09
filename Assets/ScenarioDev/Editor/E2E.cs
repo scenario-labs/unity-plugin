@@ -1,13 +1,19 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json.Linq;
 using Scenario.Editor;
 using Scenario.Editor.Agent;
 using Scenario.Editor.Core;
+using Scenario.Editor.UI;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.UIElements;
 
 namespace ScenarioDev
 {
@@ -22,8 +28,9 @@ namespace ScenarioDev
     /// for this run only; the user's settings come back at the end), SCENARIO_E2E_PORT (the bridge port, when
     /// another editor already serves the default one) and SCENARIO_E2E_SCENE (a new scene
     /// with a camera and a light, saved at that path, for the agent to build in). Unity's audio is muted
-    /// for the session.
-    /// Run with -batchmode -executeMethod ScenarioDev.E2E.OAuth or .Agent.
+    /// for the session. Device, Browser and Resume: a sign-in through the window, then a restart, a
+    /// refresh and Sign out (below).
+    /// Run with -batchmode -executeMethod ScenarioDev.E2E.OAuth, .Device, .Browser, .Resume or .Agent.
     /// </summary>
     public static class E2E
     {
@@ -75,6 +82,210 @@ namespace ScenarioDev
                 Debug.Log("E2E " + (File.Exists(report) ? File.ReadAllText(report) : "no report"));
                 EditorApplication.Exit(code);
             }
+        }
+
+        /// <summary>
+        /// Sign-in on another device through the Scenario window, as a person does it: the window opens
+        /// signed out with no project remembered, the check clicks "Sign in on another device" and writes
+        /// the page and the code to device.txt, and a person approves within 10 minutes. An account with
+        /// several projects gets the project picker; the check chooses SCENARIO_E2E_PROJECT (a name or an
+        /// id; on production, the project dedicated to plug-in tests), else the first project of the first
+        /// team, and reads the catalog there (free). Window shots and device-report.txt go to the same
+        /// folder. The session stays saved for E2E.Resume, which signs out.
+        /// </summary>
+        public static void Device() => EditorApplication.delayCall += () => _ = RunSignIn(true);
+
+        /// <summary>
+        /// The same through "Sign in with Scenario": the authorize URL lands in authorize-url.txt instead of
+        /// opening a browser, and a person opens it and approves. Shots and browser-report.txt.
+        /// </summary>
+        public static void Browser() => EditorApplication.delayCall += () => _ = RunSignIn(false);
+
+        static async Task RunSignIn(bool onDevice)
+        {
+            Directory.CreateDirectory(Dir);
+            var name = onDevice ? "device" : "browser";
+            var lines = new List<string>();
+            var code = 1;
+            // ScenarioService.OpenUrl is internal to the package: the dev tools reach it by reflection.
+            var openUrl = typeof(ScenarioService).GetField("OpenUrl", BindingFlags.Static | BindingFlags.NonPublic);
+            var previousOpenUrl = openUrl?.GetValue(null);
+            try
+            {
+                var s = ScenarioService.Instance;
+                if (s.IsSignedIn)
+                {
+                    lines.Add("FAIL signed in already: sign out first (E2E.Resume does)");
+                    return;
+                }
+                // A first sign-in: no project remembered from an earlier session.
+                var user = ScenarioUserSettings.instance;
+                user.TeamId = user.ProjectId = user.TeamName = user.ProjectName = user.Plan = "";
+                user.Save();
+                var window = ScenarioWindow.Open();
+                window.position = new Rect(40, 40, 460, 780);
+                await Task.Delay(2000);
+                Shoot(window, name + "-1-signed-out", lines);
+                if (onDevice)
+                {
+                    Shots.Click(window.rootVisualElement.Q("signin-device"));
+                    await Until(() => s.PendingDevice != null || s.State != SignInState.SigningIn, 30);
+                    var device = s.PendingDevice;
+                    if (device == null)
+                    {
+                        await Task.Delay(1000);
+                        Shoot(window, name + "-2-refused", lines);
+                        lines.Add("FAIL no code: " + s.SignInError);
+                        return;
+                    }
+                    File.WriteAllText(Path.Combine(Dir, "device.txt"), device.PageToOpen + "\n" + device.UserCode + "\n");
+                }
+                else
+                {
+                    var urlFile = Path.Combine(Dir, "authorize-url.txt");
+                    if (File.Exists(urlFile)) File.Delete(urlFile);
+                    if (openUrl == null)
+                    {
+                        lines.Add("FAIL ScenarioService.OpenUrl not found");
+                        return;
+                    }
+                    openUrl.SetValue(null, (Action<string>)(url => File.WriteAllText(urlFile, url)));
+                    Shots.Click(window.rootVisualElement.Q("signin-browser"));
+                    await Until(() => File.Exists(urlFile) || s.State != SignInState.SigningIn, 30);
+                }
+                await Task.Delay(1000);
+                Shoot(window, name + "-2-waiting", lines);
+                await Until(() => s.State != SignInState.SigningIn, 600);
+                if (!s.IsSignedIn)
+                {
+                    lines.Add("FAIL sign-in: " + s.SignInError);
+                    return;
+                }
+                await Until(() => !s.TeamsLoading && s.Teams.Count > 0, 30);
+                await Task.Delay(1000);
+                Shoot(window, name + "-3-signed-in", lines);
+                lines.Add($"signed in as *{Domain(s.AccountLabel)}: {s.Teams.Count} team(s), {s.Teams.Sum(t => t.Projects.Count)} project(s), project picker {(s.NeedsWorkspace ? "shown" : "not needed")}");
+                var wanted = (Environment.GetEnvironmentVariable("SCENARIO_E2E_PROJECT") ?? "").Trim();
+                var choice = s.Teams.SelectMany(t => t.Projects.Select(p => (t, p)))
+                    .FirstOrDefault(c => wanted.Length == 0 || c.p.Id == wanted || c.p.Name == wanted);
+                if (choice.p == null)
+                {
+                    lines.Add(wanted.Length > 0 ? $"FAIL no project '{wanted}' in this account" : "FAIL no project to choose");
+                    return;
+                }
+                s.SelectWorkspace(choice.t.Id, choice.p.Id);
+                // Choosing a project starts the catalog refresh: wait for it to start and to finish.
+                await Until(() => s.CatalogLoading, 5);
+                await Until(() => !s.CatalogLoading, 90);
+                await Task.Delay(1500);
+                Shoot(window, name + "-4-workspace", lines);
+                lines.Add(s.CatalogError.Length > 0 ? "catalog FAIL: " + s.CatalogError : $"catalog read in the chosen project: {s.Catalog.Models.Count} models");
+                var saved = s.Credentials.Load();
+                var app = OAuthApp.Select(Environment.GetEnvironmentVariable);
+                var ownApp = app.Ok && Json.Str(saved.Info, "client_id") == app.Value.ClientId;
+                lines.Add($"session saved: {(saved.Method == "oauth" ? "yes" : "NO")}, in {saved.Source}, issued to {(ownApp ? "the selected application" : "ANOTHER application")}");
+                code = s.CatalogError.Length == 0 && saved.Method == "oauth" && ownApp ? 0 : 1;
+            }
+            catch (Exception e)
+            {
+                lines.Add("FAIL " + e);
+            }
+            finally
+            {
+                if (openUrl != null) openUrl.SetValue(null, previousOpenUrl);
+                lines.Insert(0, (code == 0 ? "OK" : "FAIL") + $" {name} sign-in");
+                File.WriteAllLines(Path.Combine(Dir, name + "-report.txt"), lines);
+                Debug.Log("E2E " + string.Join(" | ", lines));
+                EditorApplication.Exit(code);
+            }
+        }
+
+        /// <summary>
+        /// After E2E.Device and an editor restart: the saved session resumes without a browser, the first
+        /// read refreshes the access token and the refresh token rotates in the credential store, then
+        /// Sign out empties the store and the provider refuses the old refresh token.
+        /// </summary>
+        public static void Resume() => EditorApplication.delayCall += () => _ = RunResume();
+
+        static async Task RunResume()
+        {
+            Directory.CreateDirectory(Dir);
+            var lines = new List<string>();
+            var code = 1;
+            try
+            {
+                var s = ScenarioService.Instance;
+                if (!s.IsSignedIn || !(s.Client.Auth is OAuthAuth))
+                {
+                    lines.Add("FAIL no saved Scenario account session to resume: " + s.SignInError);
+                    return;
+                }
+                var before = Fingerprint(s.Credentials.Load().Secret);
+                var window = ScenarioWindow.Open();
+                window.position = new Rect(40, 40, 460, 780);
+                await Task.Delay(2000);
+                await s.LoadTeams();
+                if (!s.IsSignedIn)
+                {
+                    lines.Add("FAIL the saved session was refused: " + s.SignInError);
+                    return;
+                }
+                // The rotated token is saved on the main thread after the refresh.
+                var rotated = await Until(() => Fingerprint(s.Credentials.Load().Secret) != before, 10);
+                lines.Add($"resumed without a browser as *{Domain(s.AccountLabel)}, {s.Teams.Count} team(s) read, refresh token rotated: {(rotated ? "yes" : "NO")}");
+                await Task.Delay(1500);
+                Shoot(window, "resume-1-signed-in", lines);
+
+                var refresh = ((OAuthAuth)s.Client.Auth).Tokens.RefreshToken;
+                s.SignOut();
+                var saved = s.Credentials.Load();
+                var emptied = saved.Method.Length == 0 && saved.Secret.Length == 0;
+                lines.Add($"signed out: credential store {(emptied ? "empty" : "NOT EMPTY")}");
+                // Sign out revokes in the background.
+                await Task.Delay(3000);
+                var app = OAuthApp.Select(Environment.GetEnvironmentVariable);
+                var reuse = await new OAuthClient(new HttpTransport(), app.Value).Refresh(refresh, Json.Now());
+                lines.Add($"provider refuses the old refresh token: {(!reuse.Ok && reuse.Error.Kind == ErrorKind.Auth ? "yes" : "NO")}");
+                Shoot(window, "resume-2-signed-out", lines);
+                code = rotated && emptied && !reuse.Ok ? 0 : 1;
+            }
+            catch (Exception e)
+            {
+                lines.Add("FAIL " + e);
+            }
+            finally
+            {
+                lines.Insert(0, (code == 0 ? "OK" : "FAIL") + " resume and sign out");
+                File.WriteAllLines(Path.Combine(Dir, "resume-report.txt"), lines);
+                Debug.Log("E2E " + string.Join(" | ", lines));
+                EditorApplication.Exit(code);
+            }
+        }
+
+        static void Shoot(EditorWindow window, string name, List<string> lines)
+        {
+            var error = WindowShots.Capture(window, Path.Combine(Dir, name + ".png"));
+            if (error.Length > 0) lines.Add($"shot {name}: {error}");
+        }
+
+        static async Task<bool> Until(Func<bool> condition, double seconds)
+        {
+            var end = DateTime.UtcNow.AddSeconds(seconds);
+            while (!condition())
+            {
+                if (DateTime.UtcNow > end) return false;
+                await Task.Delay(200);
+            }
+            return true;
+        }
+
+        static string Domain(string email) => email.Contains("@") ? email.Substring(email.IndexOf('@')) : "";
+
+        /// <summary>Compares secrets without logging them.</summary>
+        static string Fingerprint(string secret)
+        {
+            if (string.IsNullOrEmpty(secret)) return "";
+            using (var sha = SHA256.Create()) return Convert.ToBase64String(sha.ComputeHash(Encoding.UTF8.GetBytes(secret))).Substring(0, 12);
         }
 
         static double _deadline;

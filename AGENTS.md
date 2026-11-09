@@ -112,6 +112,15 @@ SCENARIO_ACCEPT=1 SCENARIO_UNITY_SERVICE=1 Unity -batchmode -projectPath . -exec
 # a person opens it and signs in within 10 minutes. Nothing is saved.
 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.OAuth
 
+# Sign-in through the window, on another device (the page and code land in Library/ScenarioDevLogs/e2e/device.txt)
+# or in the browser (authorize-url.txt); a person approves; then the project picker, SCENARIO_E2E_PROJECT chosen
+# (on production, the project dedicated to plug-in tests), a catalog read and window shots. The session stays saved.
+# Resume, in a new editor: the session comes back without a browser, refreshes and rotates, then Sign out.
+# Against a development instance, set SCENARIO_OAUTH_ISSUER, SCENARIO_OAUTH_CLIENT_ID and SCENARIO_MCP_URL.
+SCENARIO_NO_SPEND=1 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Device
+SCENARIO_NO_SPEND=1 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Browser
+SCENARIO_NO_SPEND=1 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Resume
+
 # Agent check: the bridge on in a batch editor, Claude Code drives it with free tools (temporary MCP config)
 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Agent &
 python3 tools/e2e_agent.py Library/ScenarioDevLogs/e2e Library/ScenarioDevLogs/e2e/agent
