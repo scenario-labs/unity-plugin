@@ -208,8 +208,10 @@ namespace Scenario.Editor
             }
             var user = ScenarioUserSettings.instance;
             Client.SetScope(user.TeamId, user.ProjectId);
-            // An API key sees only its own project: read its name for the header (free).
-            if (Client.Auth is ApiKeyAuth) EditorApplication.delayCall += () => _ = LoadTeams();
+            // A free read: it checks that the saved project is still this account's, fills the project
+            // menus, and gives an API key's own project name to the header.
+            // Only while this is still the shared service: a test may have replaced it in the meantime.
+            if (State == SignInState.SignedIn) EditorApplication.delayCall += () => { if (_instance == this) _ = LoadTeams(autoPick: true); };
         }
 
         void UseOAuth(OAuthTokens tokens, string email)
@@ -364,17 +366,23 @@ namespace Scenario.Editor
             Credentials.Clear();
             SessionState.EraseString(AccessTokenKey);
             Client.SetAuth(new NoAuth());
-            Client.SetScope("", "");
-            var user = ScenarioUserSettings.instance;
-            user.TeamId = user.ProjectId = user.TeamName = user.ProjectName = user.Plan = "";
-            user.Save();
+            ClearWorkspace();
             Teams = new List<TeamInfo>();
-            Quotes.Clear();
             State = SignInState.SignedOut;
             Emit();
         }
 
         // --- Workspace -------------------------------------------------------
+
+        /// <summary>No team or project chosen: the window asks for one again.</summary>
+        void ClearWorkspace()
+        {
+            Client.SetScope("", "");
+            var user = ScenarioUserSettings.instance;
+            user.TeamId = user.ProjectId = user.TeamName = user.ProjectName = user.Plan = "";
+            user.Save();
+            Quotes.Clear();
+        }
 
         public async Task LoadTeams(bool autoPick = false)
         {
@@ -422,7 +430,19 @@ namespace Scenario.Editor
             var all = Teams.SelectMany(t => t.Projects.Select(p => (t, p))).ToList();
             if (Client.Auth.NeedsScope)
             {
-                if (autoPick && all.Count == 1) SelectWorkspace(all[0].t.Id, all[0].p.Id, quiet: true);
+                if (autoPick && all.Count == 1)
+                {
+                    SelectWorkspace(all[0].t.Id, all[0].p.Id, quiet: true);
+                    return;
+                }
+                // The saved project is not among this account's any more (deleted, access removed, or
+                // saved under another identity provider): ask again rather than send work there.
+                if (user.ProjectId.Length > 0 || Client.ProjectId.Length > 0)
+                {
+                    var gone = user.ProjectName;
+                    ClearWorkspace();
+                    Notify((gone.Length > 0 ? gone : "The project you worked in") + " is not available to this account any more. Pick a project.", "warning");
+                }
             }
             else if (all.Count >= 1)
             {

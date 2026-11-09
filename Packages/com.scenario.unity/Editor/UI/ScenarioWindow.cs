@@ -339,6 +339,11 @@ namespace Scenario.Editor.UI
             }
             Ui.Menu(anchor, menu =>
             {
+                if (s.Teams.Count == 0)
+                {
+                    menu.AddDisabledItem(new GUIContent(s.TeamsLoading ? "Loading teams and projects…" : "No project loaded yet"));
+                    menu.AddSeparator("");
+                }
                 foreach (var team in s.Teams)
                     foreach (var project in team.Projects)
                     {
