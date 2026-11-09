@@ -272,9 +272,9 @@ The window tests need a graphics device and are skipped under `-nographics`. Liv
 - `ScenarioDev.Acceptance.Run` (paid, needs `SCENARIO_ACCEPT=1`) runs one generation per type and records it in `tests/live/LEDGER.md`.
 - `ScenarioDev.Accept3D.Import` (free) imports one real result of each 3D operation and checks the model, its rig and its clips, with a render of each; `ScenarioDev.Accept3D.Paid` sends a few 3D operations through the window's and the agent's paths.
 - `ScenarioDev.E2E.OAuth` checks the browser sign-in (a person signs in); `ScenarioDev.E2E.Device` and `ScenarioDev.E2E.Browser` sign in through the window, then `ScenarioDev.E2E.Resume` in a new editor checks the session comes back, refreshes and signs out; `ScenarioDev.E2E.Agent` with `tools/e2e_agent.py` has Claude Code drive the editor through the agent bridge.
+- `ScenarioDev.Media.Run` renders the turntables and animations above, and `tools/build_media.py` turns them into the GIFs.
 
 To sign in against a development instance, set `SCENARIO_OAUTH_ISSUER` (HTTPS) and `SCENARIO_OAUTH_CLIENT_ID` together, with `SCENARIO_MCP_URL` naming that instance's MCP. Without them, the editor signs in as the production Unity application.
-- `ScenarioDev.Media.Run` renders the turntables and animations above, and `tools/build_media.py` turns them into the GIFs.
 
 ## License
 
