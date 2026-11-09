@@ -49,6 +49,7 @@ namespace Scenario.Editor.Core
         public string TokenEndpoint => Issuer + "/oauth/token";
         public string RevocationEndpoint => Issuer + "/oauth/token/revoke";
         public string UserInfoEndpoint => Issuer + "/oauth/userinfo";
+        public string DeviceAuthorizationEndpoint => Issuer + "/oauth/device_authorization";
 
         /// <summary>
         /// Production, or the development provider and application named by both
@@ -65,9 +66,26 @@ namespace Scenario.Editor.Core
         }
     }
 
+    /// <summary>A code to enter on another device (RFC 8628), while Unity polls for the approval.</summary>
+    public sealed class DeviceCode
+    {
+        public string Code = "";
+        public string UserCode = "";
+        public string VerificationUri = "";
+        /// <summary>The page with the code already filled in, when the provider sends one.</summary>
+        public string VerificationUriComplete = "";
+        /// <summary>Seconds between polls.</summary>
+        public double Interval = 5;
+        /// <summary>Unix seconds.</summary>
+        public double ExpiresAt;
+
+        public string PageToOpen => VerificationUriComplete.Length > 0 ? VerificationUriComplete : VerificationUri;
+    }
+
     /// <summary>
     /// "Sign in with Scenario": OAuth 2.1 authorization code with PKCE against Scenario's
-    /// identity provider, as Unity's registered application, with a loopback redirect.
+    /// identity provider, as Unity's registered application, with a loopback redirect; or the
+    /// device authorization grant when the browser cannot reach 127.0.0.1.
     /// </summary>
     public sealed class OAuthClient
     {
@@ -139,7 +157,81 @@ namespace Scenario.Editor.Core
         async Task<Result<OAuthTokens>> Token(Dictionary<string, string> form, double now, string previousRefresh, CancellationToken cancel)
         {
             var reply = await _transport.SendAsync(HttpRequests.FormPost(App.TokenEndpoint, form, 30), cancel);
+            return Tokens(reply, Json.ParseObject(reply.Body), now, previousRefresh);
+        }
+
+        public const string DeviceGrant = "urn:ietf:params:oauth:grant-type:device_code";
+
+        /// <summary>Asks the provider for a code the person enters on another device.</summary>
+        public async Task<Result<DeviceCode>> StartDevice(double now, CancellationToken cancel = default)
+        {
+            var form = new Dictionary<string, string> { ["client_id"] = App.ClientId, ["scope"] = Scope };
+            var reply = await _transport.SendAsync(HttpRequests.FormPost(App.DeviceAuthorizationEndpoint, form, 30), cancel);
             var data = Json.ParseObject(reply.Body);
+            var device = new DeviceCode
+            {
+                Code = Json.Str(data, "device_code"),
+                UserCode = Json.Str(data, "user_code"),
+                VerificationUri = Json.Str(data, "verification_uri"),
+                VerificationUriComplete = Json.Str(data, "verification_uri_complete"),
+                Interval = Math.Max(1, Json.Num(data, "interval", 5)),
+                ExpiresAt = now + Json.Num(data, "expires_in", 600),
+            };
+            if (!reply.IsSuccess || device.Code.Length == 0 || device.UserCode.Length == 0)
+            {
+                // The device grant is switched on per application: a 4xx means this one may not use it.
+                var refused = reply.Answered && reply.Status >= 400 && reply.Status < 500 && reply.Status != 429;
+                return Result<DeviceCode>.Fail(KindFor(reply), refused
+                    ? "Sign-in on another device is not available for Unity yet. Sign in with the browser, or use an API key."
+                    : "Sign-in on another device could not start: " + Describe(reply, data));
+            }
+            if (!IsHttps(device.VerificationUri))
+                return Result<DeviceCode>.Fail(ErrorKind.Invalid, "Sign-in on another device sent a page that is not HTTPS.");
+            if (!IsHttps(device.VerificationUriComplete)) device.VerificationUriComplete = "";
+            return Result<DeviceCode>.Success(device);
+        }
+
+        /// <summary>
+        /// Polls until the person approves on the other device, declines, or the code expires.
+        /// slow_down adds 5 seconds between polls (RFC 8628, 3.5); a network or server failure
+        /// waits and tries again, as the code's expiry still ends the wait.
+        /// </summary>
+        public async Task<Result<OAuthTokens>> PollDevice(DeviceCode device, Func<double> clock, CancellationToken cancel = default)
+        {
+            var interval = Math.Max(1, device.Interval);
+            while (clock() < device.ExpiresAt)
+            {
+                try { await _transport.Delay(interval, cancel).ConfigureAwait(false); }
+                catch (OperationCanceledException) { }
+                if (cancel.IsCancellationRequested) return Result<OAuthTokens>.Fail(ErrorKind.Canceled, "Sign-in canceled.");
+                var form = new Dictionary<string, string> { ["grant_type"] = DeviceGrant, ["device_code"] = device.Code, ["client_id"] = App.ClientId };
+                var reply = await _transport.SendAsync(HttpRequests.FormPost(App.TokenEndpoint, form, 30), cancel).ConfigureAwait(false);
+                if (cancel.IsCancellationRequested) return Result<OAuthTokens>.Fail(ErrorKind.Canceled, "Sign-in canceled.");
+                if (!reply.Answered || reply.Status >= 500) continue;
+                var data = Json.ParseObject(reply.Body);
+                if (reply.IsSuccess) return Tokens(reply, data, clock(), "");
+                switch (Json.Str(data, "error"))
+                {
+                    case "authorization_pending":
+                        continue;
+                    case "slow_down":
+                        interval += 5;
+                        continue;
+                    case "access_denied":
+                        return Result<OAuthTokens>.Fail(ErrorKind.Auth, "Sign-in was declined in the browser.");
+                    case "expired_token":
+                        return Result<OAuthTokens>.Fail(ErrorKind.Timeout, "The sign-in code expired. Start again.");
+                    default:
+                        return Result<OAuthTokens>.Fail(KindFor(reply), "Sign-in on another device failed: " + Describe(reply, data));
+                }
+            }
+            return Result<OAuthTokens>.Fail(ErrorKind.Timeout, "The sign-in code expired. Start again.");
+        }
+
+        static bool IsHttps(string url) => url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+        static Result<OAuthTokens> Tokens(HttpReply reply, JObject data, double now, string previousRefresh)
+        {
             var access = Json.Str(data, "access_token");
             if (!reply.IsSuccess || access.Length == 0)
             {
@@ -367,15 +459,34 @@ namespace Scenario.Editor.Core
                 }
                 var tokens = await client.Exchange(callback.Code, listener.RedirectUri, verifier, Json.Now(), cancel).ConfigureAwait(false);
                 if (!tokens.Ok) return tokens.Cast<OAuthSession>();
-                var user = await client.UserInfo(tokens.Value.AccessToken, cancel).ConfigureAwait(false);
-                return Result<OAuthSession>.Success(new OAuthSession
-                {
-                    Tokens = tokens.Value,
-                    ClientId = client.App.ClientId,
-                    Email = Json.Str(user, "email"),
-                    Name = Json.Str(user, "name", Json.Str(user, "given_name")),
-                });
+                return await Session(client, tokens.Value, cancel).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// Sign-in on another device, for a browser that cannot reach 127.0.0.1 (a remote
+        /// session, a locked-down machine). showCode receives the code to enter and the page.
+        /// </summary>
+        public static async Task<Result<OAuthSession>> RunOnDevice(OAuthClient client, Action<DeviceCode> showCode, CancellationToken cancel = default)
+        {
+            var device = await client.StartDevice(Json.Now(), cancel).ConfigureAwait(false);
+            if (!device.Ok) return device.Cast<OAuthSession>();
+            showCode(device.Value);
+            var tokens = await client.PollDevice(device.Value, Json.Now, cancel).ConfigureAwait(false);
+            if (!tokens.Ok) return tokens.Cast<OAuthSession>();
+            return await Session(client, tokens.Value, cancel).ConfigureAwait(false);
+        }
+
+        static async Task<Result<OAuthSession>> Session(OAuthClient client, OAuthTokens tokens, CancellationToken cancel)
+        {
+            var user = await client.UserInfo(tokens.AccessToken, cancel).ConfigureAwait(false);
+            return Result<OAuthSession>.Success(new OAuthSession
+            {
+                Tokens = tokens,
+                ClientId = client.App.ClientId,
+                Email = Json.Str(user, "email"),
+                Name = Json.Str(user, "name", Json.Str(user, "given_name")),
+            });
         }
     }
 

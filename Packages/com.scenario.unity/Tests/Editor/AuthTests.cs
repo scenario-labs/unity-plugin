@@ -257,24 +257,6 @@ namespace Scenario.Editor.Tests
     /// </summary>
     public class BrowserSignInTests
     {
-        /// <summary>Answers like the real network: later, on a worker thread.</summary>
-        sealed class WorkerThreadTransport : ITransport
-        {
-            readonly FakeMcp _inner;
-            public WorkerThreadTransport(FakeMcp inner) { _inner = inner; }
-
-            public async Task<HttpReply> SendAsync(HttpRequestSpec request, CancellationToken cancel = default)
-            {
-                await Task.Delay(50).ConfigureAwait(false);
-                return await _inner.SendAsync(request, cancel).ConfigureAwait(false);
-            }
-
-            public Task<HttpReply> DownloadAsync(string url, string destPath, double timeoutSeconds, IProgress<float> progress = null, CancellationToken cancel = default)
-                => _inner.DownloadAsync(url, destPath, timeoutSeconds, progress, cancel);
-
-            public Task Delay(double seconds, CancellationToken cancel = default) => _inner.Delay(seconds, cancel);
-        }
-
         Action<string> _openUrl;
 
         [SetUp]
@@ -356,6 +338,205 @@ namespace Scenario.Editor.Tests
             Assert.IsFalse(s.Client.HasCredentials);
             Assert.AreEqual("", store.Load().Method, "the token is deleted");
             Assert.AreEqual(0, server.Requests.Count, "and never sent to a provider that did not issue it");
+        }
+    }
+
+    /// <summary>Sign-in on another device (RFC 8628): the code, the polling rules, and the service around them.</summary>
+    public class DeviceSignInTests
+    {
+        static readonly OAuthApp DevApp = new OAuthApp("https://id.example.test", "unity_dev_client");
+
+        const string DeviceReply = "{\"device_code\":\"dc_1\",\"user_code\":\"ABCD-EFGH\",\"verification_uri\":\"https://id.example.test/device\","
+                                   + "\"verification_uri_complete\":\"https://id.example.test/device?user_code=ABCD-EFGH\",\"expires_in\":600,\"interval\":5}";
+        const string TokensReply = "{\"access_token\":\"at1\",\"refresh_token\":\"rt1\",\"expires_in\":3600}";
+
+        static HttpReply OAuthError(string code) => new HttpReply { Status = 400, Body = "{\"error\":\"" + code + "\"}" };
+
+        static DeviceCode Code(double expiresAt = double.MaxValue)
+            => new DeviceCode { Code = "dc_1", UserCode = "ABCD-EFGH", VerificationUri = "https://id.example.test/device", Interval = 5, ExpiresAt = expiresAt };
+
+        string _settings;
+
+        [SetUp]
+        public void SetUp() => _settings = EditorJsonUtility.ToJson(ScenarioUserSettings.instance);
+
+        [TearDown]
+        public void TearDown()
+        {
+            ScenarioService.ResetForTests();
+            EditorJsonUtility.FromJsonOverwrite(_settings, ScenarioUserSettings.instance);
+        }
+
+        [Test]
+        public void StartAsksTheAppsProviderForACode()
+        {
+            var server = new FakeMcp();
+            HttpRequestSpec sent = null;
+            server.Other = request =>
+            {
+                sent = request;
+                return new HttpReply { Status = 200, Body = DeviceReply };
+            };
+            var device = Run.Sync(new OAuthClient(server, DevApp).StartDevice(1000)).Value;
+            Assert.AreEqual("https://id.example.test/oauth/device_authorization", sent.Url);
+            var form = Uri.UnescapeDataString(Encoding.UTF8.GetString(sent.Body));
+            StringAssert.Contains("client_id=unity_dev_client", form);
+            StringAssert.Contains("offline_access", form);
+            Assert.AreEqual("dc_1", device.Code);
+            Assert.AreEqual("ABCD-EFGH", device.UserCode);
+            Assert.AreEqual("https://id.example.test/device", device.VerificationUri);
+            Assert.AreEqual("https://id.example.test/device?user_code=ABCD-EFGH", device.PageToOpen);
+            Assert.AreEqual(5, device.Interval);
+            Assert.AreEqual(1600, device.ExpiresAt);
+        }
+
+        [Test]
+        public void StartRefusesAPageThatIsNotHttps()
+        {
+            var server = new FakeMcp { Other = _ => new HttpReply { Status = 200, Body = DeviceReply.Replace("\"verification_uri\":\"https://", "\"verification_uri\":\"http://") } };
+            var result = Run.Sync(new OAuthClient(server, DevApp).StartDevice(0));
+            Assert.IsFalse(result.Ok);
+            StringAssert.Contains("HTTPS", result.Error.Message);
+        }
+
+        [Test]
+        public void StartSaysWhenTheAppMayNotUseTheDeviceGrant()
+        {
+            // What the provider answers while the grant is off for the application (checked 2026-11-09).
+            var server = new FakeMcp
+            {
+                Other = _ => new HttpReply
+                {
+                    Status = 400,
+                    Body = "{\"error\":\"invalid_grant\",\"error_description\":\"The requested OAuth 2.0 Client does not have the 'urn:ietf:params:oauth:grant-type:device_code' grant.\"}",
+                },
+            };
+            var result = Run.Sync(new OAuthClient(server, DevApp).StartDevice(0));
+            Assert.IsFalse(result.Ok);
+            StringAssert.Contains("not available", result.Error.Message);
+            StringAssert.DoesNotContain("urn:ietf", result.Error.Message);
+        }
+
+        [Test]
+        public void PollWaitsSlowsDownAndReturnsTheTokens()
+        {
+            var forms = new List<string>();
+            var replies = new Queue<HttpReply>(new[] { OAuthError("authorization_pending"), OAuthError("slow_down"), new HttpReply { Status = 200, Body = TokensReply } });
+            var server = new FakeMcp();
+            server.Other = request =>
+            {
+                forms.Add(Uri.UnescapeDataString(Encoding.UTF8.GetString(request.Body)));
+                return replies.Dequeue();
+            };
+            var tokens = Run.Sync(new OAuthClient(server, DevApp).PollDevice(Code(), () => 100));
+            Assert.AreEqual("at1", tokens.Value.AccessToken);
+            Assert.AreEqual("rt1", tokens.Value.RefreshToken);
+            CollectionAssert.AreEqual(new[] { 5.0, 5.0, 10.0 }, server.Delays, "the interval first, then 5 seconds more after slow_down");
+            StringAssert.Contains("grant_type=urn:ietf:params:oauth:grant-type:device_code", forms[0]);
+            StringAssert.Contains("device_code=dc_1", forms[0]);
+            StringAssert.Contains("client_id=unity_dev_client", forms[0]);
+        }
+
+        [Test]
+        public void PollStopsWhenDeclinedOrExpired()
+        {
+            var server = new FakeMcp { Other = _ => OAuthError("access_denied") };
+            var client = new OAuthClient(server, DevApp);
+            var declined = Run.Sync(client.PollDevice(Code(), () => 0));
+            Assert.AreEqual(ErrorKind.Auth, declined.Error.Kind);
+            StringAssert.Contains("declined", declined.Error.Message);
+
+            server.Other = _ => OAuthError("expired_token");
+            Assert.AreEqual(ErrorKind.Timeout, Run.Sync(client.PollDevice(Code(), () => 0)).Error.Kind);
+
+            var sent = server.Requests.Count;
+            var late = Run.Sync(client.PollDevice(Code(expiresAt: 100), () => 200));
+            Assert.AreEqual(ErrorKind.Timeout, late.Error.Kind);
+            Assert.AreEqual(sent, server.Requests.Count, "an expired code is not polled");
+        }
+
+        [Test]
+        public void PollKeepsWaitingThroughANetworkOrServerFailure()
+        {
+            var replies = new Queue<HttpReply>(new[] { FakeMcp.Fail("transport"), FakeMcp.Status(503), new HttpReply { Status = 200, Body = TokensReply } });
+            var server = new FakeMcp { Other = _ => replies.Dequeue() };
+            Assert.AreEqual("at1", Run.Sync(new OAuthClient(server, DevApp).PollDevice(Code(), () => 0)).Value.AccessToken);
+        }
+
+        [Test]
+        public void PollStopsWhenCanceled()
+        {
+            using (var cancel = new CancellationTokenSource())
+            {
+                var server = new FakeMcp
+                {
+                    Other = _ =>
+                    {
+                        cancel.Cancel();
+                        return OAuthError("authorization_pending");
+                    },
+                };
+                var result = Run.Sync(new OAuthClient(server, DevApp).PollDevice(Code(), () => 0, cancel.Token));
+                Assert.AreEqual(ErrorKind.Canceled, result.Error.Kind);
+            }
+        }
+
+        /// <summary>The production provider as the service meets it: a code, some polls before approval, then who signed in.</summary>
+        static FakeMcp Provider(int pendingPolls)
+        {
+            var polls = 0;
+            var server = new FakeMcp();
+            server.Tools["teams_list"] = (args, i) => FakeMcp.Fixture("teams.sse.txt");
+            server.Other = request =>
+            {
+                if (request.Url == OAuthApp.Production.DeviceAuthorizationEndpoint) return new HttpReply { Status = 200, Body = DeviceReply };
+                if (request.Url == OAuthApp.Production.TokenEndpoint)
+                    return polls++ < pendingPolls ? OAuthError("authorization_pending") : new HttpReply { Status = 200, Body = TokensReply };
+                if (request.Url == OAuthApp.Production.UserInfoEndpoint) return new HttpReply { Status = 200, Body = "{\"email\":\"me@x.com\"}" };
+                return new HttpReply { Status = 404 };
+            };
+            return server;
+        }
+
+        [UnityTest]
+        public IEnumerator TheServiceShowsTheCode_ThenSignsInOnceApproved()
+        {
+            var s = ScenarioService.UseForTests(new WorkerThreadTransport(Provider(pendingPolls: 20)), TempDir.Make("device"));
+            var signIn = s.SignInOnAnotherDevice();
+            Assert.IsTrue(s.SigningInOnDevice);
+            Assert.AreEqual(SignInState.SigningIn, s.State);
+            var until = EditorApplication.timeSinceStartup + 20;
+            while (s.PendingDevice == null && !signIn.IsCompleted && EditorApplication.timeSinceStartup < until) yield return null;
+            Assert.AreEqual("ABCD-EFGH", s.PendingDevice?.UserCode, "the code shows while Unity waits for the approval");
+            while (!signIn.IsCompleted && EditorApplication.timeSinceStartup < until) yield return null;
+            Assert.AreEqual(SignInState.SignedIn, s.State, s.SignInError);
+            Assert.AreEqual("me@x.com", s.AccountLabel);
+            Assert.IsNull(s.PendingDevice);
+            Assert.IsFalse(s.SigningInOnDevice);
+            var saved = s.Credentials.Load();
+            Assert.AreEqual("oauth", saved.Method);
+            Assert.AreEqual("rt1", saved.Secret);
+            Assert.AreEqual(OAuthApp.ProductionClientId, Json.Str(saved.Info, "client_id"));
+        }
+
+        [UnityTest]
+        public IEnumerator CancelDropsTheCode_AndBringsThePanelBack()
+        {
+            var s = ScenarioService.UseForTests(new WorkerThreadTransport(Provider(pendingPolls: int.MaxValue)), TempDir.Make("device-cancel"));
+            var signIn = s.SignInOnAnotherDevice();
+            var until = EditorApplication.timeSinceStartup + 20;
+            while (s.PendingDevice == null && EditorApplication.timeSinceStartup < until) yield return null;
+            Assert.IsNotNull(s.PendingDevice);
+
+            s.CancelSignIn();
+            Assert.AreEqual(SignInState.SignedOut, s.State, "Cancel brings the panel back at once");
+            Assert.IsNull(s.PendingDevice);
+            Assert.IsFalse(s.SigningInOnDevice);
+            while (!signIn.IsCompleted && EditorApplication.timeSinceStartup < until) yield return null;
+            Assert.IsTrue(signIn.IsCompleted, "the polling stopped");
+            Assert.AreEqual(SignInState.SignedOut, s.State);
+            Assert.AreEqual("", s.SignInError);
+            Assert.IsNull(s.PendingDevice);
         }
     }
 }

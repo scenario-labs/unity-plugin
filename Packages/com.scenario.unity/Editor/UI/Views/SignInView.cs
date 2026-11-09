@@ -5,14 +5,22 @@ using UnityEngine.UIElements;
 
 namespace Scenario.Editor.UI
 {
-    /// <summary>Signed out: one button for the browser sign-in, an API key as the alternative (one primary action at a time).</summary>
+    /// <summary>
+    /// Signed out: one button for the browser sign-in, a code to enter on another device when
+    /// that browser cannot reach this machine, an API key as the alternative (one primary action at a time).
+    /// </summary>
     public sealed class SignInView : View
     {
         public override string Id => "signin";
 
         readonly VisualElement _box;
         readonly Button _primary;
+        readonly Label _deviceLink;
         readonly VisualElement _waiting;
+        readonly Label _waitingText;
+        readonly VisualElement _deviceBox;
+        readonly Label _deviceWhere;
+        readonly Label _deviceCode;
         readonly VisualElement _error;
         readonly VisualElement _keyForm;
         readonly TextField _key;
@@ -41,10 +49,33 @@ namespace Scenario.Editor.UI
             _primary.name = "signin-browser";
             _box.Add(_primary);
 
+            _deviceLink = Ui.Text("Sign in on another device", "sc-link", "sc-small");
+            _deviceLink.name = "signin-device";
+            _deviceLink.style.alignSelf = Align.Center;
+            _deviceLink.style.marginTop = 10;
+            _deviceLink.RegisterCallback<ClickEvent>(evt => _ = S.SignInOnAnotherDevice());
+            _box.Add(_deviceLink);
+
             _waiting = new VisualElement();
             _waiting.style.alignItems = Align.Center;
             _waiting.style.marginTop = 4;
-            var waitingRow = Ui.Row(Ui.Spinner(true), Ui.Text("  Finish signing in in your browser…", "sc-dim"));
+            _deviceBox = new VisualElement { name = "device-code-box" };
+            _deviceBox.style.alignItems = Align.Center;
+            _deviceBox.style.marginBottom = 12;
+            _deviceWhere = Ui.Text("", "sc-dim");
+            _deviceWhere.style.whiteSpace = WhiteSpace.Normal;
+            _deviceWhere.style.unityTextAlign = TextAnchor.MiddleCenter;
+            _deviceBox.Add(_deviceWhere);
+            _deviceCode = Ui.Text("", "sc-device-code");
+            _deviceCode.name = "device-code";
+            _deviceCode.selection.isSelectable = true;
+            _deviceBox.Add(_deviceCode);
+            _deviceBox.Add(Ui.Row(
+                Ui.Button("Open the page", () => WithDevice(d => ScenarioService.OpenUrl(d.PageToOpen)), null, "sc-btn-ghost", "sc-btn-sm"),
+                Ui.Button("Copy the code", () => WithDevice(d => EditorGUIUtility.systemCopyBuffer = d.UserCode), null, "sc-btn-ghost", "sc-btn-sm")));
+            _waiting.Add(_deviceBox);
+            _waitingText = Ui.Text("", "sc-dim");
+            var waitingRow = Ui.Row(Ui.Spinner(true), _waitingText);
             _waiting.Add(waitingRow);
             var cancel = Ui.Button("Cancel", S.CancelSignIn, null, "sc-btn-ghost", "sc-btn-sm");
             cancel.style.marginTop = 6;
@@ -120,6 +151,12 @@ namespace Scenario.Editor.UI
             return link;
         }
 
+        void WithDevice(System.Action<DeviceCode> act)
+        {
+            var device = S.PendingDevice;
+            if (device != null) act(device);
+        }
+
         async void SignInWithKey()
         {
             _keyButton.SetEnabled(false);
@@ -134,7 +171,18 @@ namespace Scenario.Editor.UI
         {
             var signingIn = S.State == SignInState.SigningIn;
             _primary.style.display = signingIn || _showKey ? DisplayStyle.None : DisplayStyle.Flex;
+            _deviceLink.style.display = signingIn || _showKey ? DisplayStyle.None : DisplayStyle.Flex;
             _waiting.style.display = signingIn && S.Method != AuthMethod.ApiKey && !_showKey ? DisplayStyle.Flex : DisplayStyle.None;
+            var device = S.PendingDevice;
+            _deviceBox.style.display = device != null ? DisplayStyle.Flex : DisplayStyle.None;
+            if (device != null)
+            {
+                _deviceWhere.text = $"On any device, go to {device.VerificationUri} and enter this code. Unity signs in once you approve.";
+                _deviceCode.text = device.UserCode;
+            }
+            _waitingText.text = !S.SigningInOnDevice ? "  Finish signing in in your browser…"
+                : device == null ? "  Getting a code…"
+                : "  Waiting for your approval…";
             _keyForm.style.display = _showKey ? DisplayStyle.Flex : DisplayStyle.None;
             _keyToggle.text = _showKey ? "Sign in with the browser instead" : "Use an API key instead";
             _error.Clear();

@@ -245,7 +245,26 @@ namespace Scenario.Editor
         /// <summary>Opens a page in the user's browser. Tests replace it.</summary>
         internal static Action<string> OpenUrl = Application.OpenURL;
 
-        public async Task SignInWithBrowser()
+        /// <summary>Sign-in on another device is running (the code may not be there yet).</summary>
+        public bool SigningInOnDevice { get; private set; }
+        /// <summary>The code to enter on another device while that sign-in waits, else null.</summary>
+        public DeviceCode PendingDevice { get; private set; }
+
+        public Task SignInWithBrowser()
+            // The sign-in resumes on worker threads after its network calls, and Unity opens URLs only from the main thread.
+            => SignIn(false, (oauth, signIn) => OAuthSignIn.Run(oauth, url => MainThread.Post(() => OpenUrl(url)), TimeSpan.FromMinutes(5), signIn.Token));
+
+        /// <summary>For a browser that cannot reach this machine: show a code, enter it on any device.</summary>
+        public Task SignInOnAnotherDevice()
+            => SignIn(true, (oauth, signIn) => OAuthSignIn.RunOnDevice(oauth, device => MainThread.Post(() =>
+            {
+                // A late code from a sign-in that ended or was replaced is dropped.
+                if (_signIn != signIn) return;
+                PendingDevice = device;
+                Emit();
+            }), signIn.Token));
+
+        async Task SignIn(bool onDevice, Func<OAuthClient, CancellationTokenSource, Task<Result<OAuthSession>>> run)
         {
             CancelSignIn();
             if (_oauth == null)
@@ -257,13 +276,13 @@ namespace Scenario.Editor
             var signIn = new CancellationTokenSource();
             _signIn = signIn;
             State = SignInState.SigningIn;
+            SigningInOnDevice = onDevice;
             SignInError = "";
             Emit();
             Result<OAuthSession> result;
             try
             {
-                // The sign-in resumes on worker threads after its network calls, and Unity opens URLs only from the main thread.
-                result = await OAuthSignIn.Run(_oauth, url => MainThread.Post(() => OpenUrl(url)), TimeSpan.FromMinutes(5), signIn.Token);
+                result = await run(_oauth, signIn);
             }
             catch (Exception e)
             {
@@ -272,6 +291,8 @@ namespace Scenario.Editor
             // Canceled, or a newer sign-in started: that one owns the panel now.
             if (_signIn != signIn) return;
             _signIn = null;
+            SigningInOnDevice = false;
+            PendingDevice = null;
             if (!result.Ok)
             {
                 State = Client.HasCredentials ? SignInState.SignedIn : SignInState.SignedOut;
@@ -294,6 +315,8 @@ namespace Scenario.Editor
         {
             _signIn?.Cancel();
             _signIn = null;
+            SigningInOnDevice = false;
+            PendingDevice = null;
             if (State != SignInState.SigningIn) return;
             State = Client.HasCredentials ? SignInState.SignedIn : SignInState.SignedOut;
             SignInError = "";
