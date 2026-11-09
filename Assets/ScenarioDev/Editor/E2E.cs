@@ -201,9 +201,11 @@ namespace ScenarioDev
         }
 
         /// <summary>
-        /// After E2E.Device and an editor restart: the saved session resumes without a browser, the first
-        /// read refreshes the access token and the refresh token rotates in the credential store, then
-        /// Sign out empties the store and the provider refuses the old refresh token.
+        /// After E2E.Device or E2E.Browser and an editor restart: the saved session resumes without a
+        /// browser, the read at editor start refreshes the access token (the refresh token rotates in the
+        /// credential store) and keeps the saved project, or brings the picker back when
+        /// SCENARIO_E2E_STALE_PROJECT=1 replaced it by one the account does not have. Then Sign out empties
+        /// the store and the provider refuses the old refresh token.
         /// </summary>
         public static void Resume() => EditorApplication.delayCall += () => _ = RunResume();
 
@@ -214,6 +216,17 @@ namespace ScenarioDev
             var code = 1;
             try
             {
+                // SCENARIO_E2E_STALE_PROJECT=1: the saved project is replaced by one the account does not
+                // have, as after a deletion; the editor start must bring the picker back.
+                var stale = Environment.GetEnvironmentVariable("SCENARIO_E2E_STALE_PROJECT") == "1";
+                var user = ScenarioUserSettings.instance;
+                if (stale && user.ProjectId.Length > 0)
+                {
+                    user.ProjectId = "proj_e2e_gone";
+                    user.Save();
+                }
+                var savedProject = user.ProjectId;
+                var savedName = user.ProjectName;
                 var s = ScenarioService.Instance;
                 if (!s.IsSignedIn || !(s.Client.Auth is OAuthAuth))
                 {
@@ -223,8 +236,9 @@ namespace ScenarioDev
                 var before = Fingerprint(s.Credentials.Load().Secret);
                 var window = ScenarioWindow.Open();
                 window.position = new Rect(40, 40, 460, 780);
-                await Task.Delay(2000);
-                await s.LoadTeams();
+                // The editor start reads the teams once and checks the saved project.
+                await Until(() => s.Teams.Count > 0 || !s.IsSignedIn, 30);
+                await Task.Delay(1500);
                 if (!s.IsSignedIn)
                 {
                     lines.Add("FAIL the saved session was refused: " + s.SignInError);
@@ -233,8 +247,11 @@ namespace ScenarioDev
                 // The rotated token is saved on the main thread after the refresh.
                 var rotated = await Until(() => Fingerprint(s.Credentials.Load().Secret) != before, 10);
                 lines.Add($"resumed without a browser as *{Domain(s.AccountLabel)}, {s.Teams.Count} team(s) read, refresh token rotated: {(rotated ? "yes" : "NO")}");
-                await Task.Delay(1500);
-                Shoot(window, "resume-1-signed-in", lines);
+                var workspaceOk = stale ? s.NeedsWorkspace : !s.NeedsWorkspace && s.Client.ProjectId == savedProject;
+                lines.Add(stale
+                    ? $"saved project replaced by one the account does not have: picker {(s.NeedsWorkspace ? "shown again" : "NOT shown")}"
+                    : $"saved project ({(savedName.Length > 0 ? "chosen before the restart" : "none")}) {(workspaceOk ? "kept" : "NOT kept")} after the restart");
+                Shoot(window, stale ? "resume-1-picker-again" : "resume-1-signed-in", lines);
 
                 var refresh = ((OAuthAuth)s.Client.Auth).Tokens.RefreshToken;
                 s.SignOut();
@@ -247,7 +264,7 @@ namespace ScenarioDev
                 var reuse = await new OAuthClient(new HttpTransport(), app.Value).Refresh(refresh, Json.Now());
                 lines.Add($"provider refuses the old refresh token: {(!reuse.Ok && reuse.Error.Kind == ErrorKind.Auth ? "yes" : "NO")}");
                 Shoot(window, "resume-2-signed-out", lines);
-                code = rotated && emptied && !reuse.Ok ? 0 : 1;
+                code = rotated && workspaceOk && emptied && !reuse.Ok ? 0 : 1;
             }
             catch (Exception e)
             {
