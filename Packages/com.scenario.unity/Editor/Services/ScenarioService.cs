@@ -109,6 +109,12 @@ namespace Scenario.Editor
         ScenarioService(ITransport transport, CredentialStore credentials, string ledgerPath, string catalogPath, bool readEnvironment)
         {
             Client = new McpClient(transport);
+            if (readEnvironment)
+            {
+                var endpoint = McpClient.EndpointFrom(Environment.GetEnvironmentVariable);
+                if (endpoint.Ok) Client.Endpoint = endpoint.Value;
+                else Debug.LogWarning("Scenario: " + endpoint.Error.Message);
+            }
             Credentials = credentials;
             Ledger = new JobLedger(ledgerPath);
             Ledger.Load();
