@@ -41,19 +41,25 @@ namespace ScenarioDev
             try
             {
                 var transport = new HttpTransport();
-                var oauth = new OAuthClient(transport);
-                var result = await OAuthSignIn.Run(oauth, url => File.WriteAllText(urlFile, url), "", "", TimeSpan.FromMinutes(10));
+                var app = OAuthApp.Select(Environment.GetEnvironmentVariable);
+                if (!app.Ok)
+                {
+                    File.WriteAllText(report, "FAIL sign-in: " + app.Error.Message);
+                    return;
+                }
+                var oauth = new OAuthClient(transport, app.Value);
+                var result = await OAuthSignIn.Run(oauth, url => File.WriteAllText(urlFile, url), TimeSpan.FromMinutes(10));
                 if (!result.Ok)
                 {
                     File.WriteAllText(report, "FAIL sign-in: " + result.Error.Message);
                     return;
                 }
                 var session = result.Value;
-                var client = new McpClient(transport, new OAuthAuth(oauth, session.ClientId, session.Tokens, session.Email));
+                var client = new McpClient(transport, new OAuthAuth(oauth, session.Tokens, session.Email));
                 var teams = await client.ListTeams();
                 var count = teams.Ok ? (teams.Value["teams"] as JArray)?.Count ?? 0 : -1;
                 var domain = session.Email.Contains("@") ? session.Email.Substring(session.Email.IndexOf('@')) : "";
-                File.WriteAllText(report, (teams.Ok ? "OK" : "FAIL") + $" sign-in: client registered, code exchanged, user *{domain}, "
+                File.WriteAllText(report, (teams.Ok ? "OK" : "FAIL") + $" sign-in: code exchanged as the registered application, user *{domain}, "
                                           + (teams.Ok ? $"{count} team(s) listed with the token" : "teams_list failed: " + teams.Error.Message)
                                           + $", access token expires in {Math.Round(session.Tokens.ExpiresAt - Json.Now())} s, refresh token {(session.Tokens.RefreshToken.Length > 0 ? "received" : "missing")}. Nothing saved.");
                 code = teams.Ok ? 0 : 1;

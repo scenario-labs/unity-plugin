@@ -23,8 +23,9 @@ In `Packages/com.scenario.unity/Editor/` (assembly `Scenario.Editor`):
   - `McpClient.cs`: Scenario MCP calls, sessions, error kinds, retry policy
     (reads and price checks only), estimate and submit.
   - `Sse.cs`, `Json.cs`, `ScenarioResult.cs`: replies, JSON helpers, results and errors.
-  - `Auth.cs`, `OAuth.cs`, `CredentialStore.cs`: API key, OAuth (PKCE, dynamic
-    client registration, loopback redirect), environment, OS keychain.
+  - `Auth.cs`, `OAuth.cs`, `CredentialStore.cs`: API key, OAuth (PKCE as Unity's
+    registered application on Scenario's identity provider, loopback redirect on
+    any free port), environment, OS keychain.
   - `Quote.cs`: canonical JSON, fingerprints, single-use quotes.
   - `JobLedger.cs`: durable job list (`Library/Scenario/jobs.json`), states,
     reconciles Unknown rows with `jobs_list`.

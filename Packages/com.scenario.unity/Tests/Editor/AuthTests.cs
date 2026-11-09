@@ -108,20 +108,24 @@ namespace Scenario.Editor.Tests
             Assert.IsFalse(token.Contains("+") || token.Contains("/") || token.Contains("="));
         }
 
+        /// <summary>A development provider and application, as the SCENARIO_OAUTH_* variables name them.</summary>
+        static readonly OAuthApp DevApp = new OAuthApp("https://id.example.test/", "unity_dev_client");
+
         [Test]
-        public void AuthorizeUrlCarriesPkceStateAndResource()
+        public void AuthorizeUrlSignsInAsUnitysApplication()
         {
-            var client = new OAuthClient(new FakeMcp());
-            var url = new Uri(client.AuthorizeUrl("client_1", "http://127.0.0.1:47321/callback", "st", "ch"));
-            Assert.AreEqual("mcp.scenario.com", url.Host);
+            var client = new OAuthClient(new FakeMcp(), OAuthApp.Production);
+            var url = new Uri(client.AuthorizeUrl("http://127.0.0.1:50123/callback", "st", "ch"));
+            Assert.AreEqual("https://clerk.scenario.com/oauth/authorize", url.GetLeftPart(UriPartial.Path));
             var query = ParseQuery(url.Query);
+            Assert.AreEqual(OAuthApp.ProductionClientId, query["client_id"]);
             Assert.AreEqual("code", query["response_type"]);
             Assert.AreEqual("S256", query["code_challenge_method"]);
             Assert.AreEqual("ch", query["code_challenge"]);
             Assert.AreEqual("st", query["state"]);
-            Assert.AreEqual("https://mcp.scenario.com/mcp", query["resource"]);
-            Assert.AreEqual("http://127.0.0.1:47321/callback", query["redirect_uri"]);
+            Assert.AreEqual("http://127.0.0.1:50123/callback", query["redirect_uri"]);
             StringAssert.Contains("offline_access", query["scope"]);
+            Assert.IsFalse(query.ContainsKey("resource"), "the provider issues tokens for its own application, not for the MCP resource");
         }
 
         [Test]
@@ -129,49 +133,89 @@ namespace Scenario.Editor.Tests
         {
             var server = new FakeMcp();
             var forms = new List<string>();
+            var urls = new List<string>();
             server.Other = request =>
             {
                 var body = Encoding.UTF8.GetString(request.Body ?? new byte[0]);
                 forms.Add(body);
+                urls.Add(request.Url);
                 if (body.Contains("grant_type=authorization_code"))
                     return new HttpReply { Status = 200, Body = "{\"access_token\":\"at1\",\"refresh_token\":\"rt1\",\"expires_in\":3600}" };
                 if (body.Contains("refresh_token=rt1"))
                     return new HttpReply { Status = 200, Body = "{\"access_token\":\"at2\",\"refresh_token\":\"rt2\",\"expires_in\":3600}" };
                 return new HttpReply { Status = 400, Body = "{\"error\":\"invalid_grant\"}" };
             };
-            var client = new OAuthClient(server);
-            var tokens = Run.Sync(client.Exchange("c", "code", "http://127.0.0.1:1/callback", "verifier", 100));
+            var client = new OAuthClient(server, DevApp);
+            var tokens = Run.Sync(client.Exchange("code", "http://127.0.0.1:1/callback", "verifier", 100));
             Assert.AreEqual("at1", tokens.Value.AccessToken);
             Assert.AreEqual(3700, tokens.Value.ExpiresAt);
+            Assert.AreEqual("https://id.example.test/oauth/token", urls[0]);
             StringAssert.Contains("code_verifier=verifier", forms[0]);
-            StringAssert.Contains("resource=https%3A%2F%2Fmcp.scenario.com%2Fmcp", forms[0]);
+            StringAssert.Contains("client_id=unity_dev_client", forms[0]);
+            StringAssert.DoesNotContain("resource=", forms[0]);
 
-            var auth = new OAuthAuth(client, "c", new OAuthTokens { AccessToken = "old", RefreshToken = "rt1", ExpiresAt = 0 }, "me@x.com");
+            var auth = new OAuthAuth(client, new OAuthTokens { AccessToken = "old", RefreshToken = "rt1", ExpiresAt = 0 }, "me@x.com");
             OAuthTokens rotated = null;
             auth.TokensChanged += t => rotated = t;
             Assert.AreEqual("Bearer at2", Run.Sync(auth.AuthorizationHeaderAsync()));
             Assert.AreEqual("rt2", rotated.RefreshToken);
             Assert.AreEqual("me@x.com", auth.Label);
+            StringAssert.Contains("client_id=unity_dev_client", forms[1]);
+            StringAssert.DoesNotContain("resource=", forms[1]);
 
-            var expired = Run.Sync(client.Refresh("c", "rt_dead", 100));
+            var expired = Run.Sync(client.Refresh("rt_dead", 100));
             Assert.AreEqual(ErrorKind.Auth, expired.Error.Kind);
             Assert.IsTrue(expired.Error.SessionExpired);
         }
 
         [Test]
-        public void RegistrationIsAPublicClient()
+        public void RevokeSendsTheTokenToTheAppsProvider()
         {
             var server = new FakeMcp();
-            JObject sent = null;
+            HttpRequestSpec sent = null;
             server.Other = request =>
             {
-                sent = JObject.Parse(Encoding.UTF8.GetString(request.Body));
-                return new HttpReply { Status = 201, Body = "{\"client_id\":\"client_new\"}" };
+                sent = request;
+                return new HttpReply { Status = 200 };
             };
-            var result = Run.Sync(new OAuthClient(server).Register("http://127.0.0.1:47321/callback"));
-            Assert.AreEqual("client_new", result.Value);
-            Assert.AreEqual("none", (string)sent["token_endpoint_auth_method"]);
-            Assert.AreEqual("http://127.0.0.1:47321/callback", (string)sent["redirect_uris"][0]);
+            Run.Sync(new OAuthClient(server, DevApp).Revoke("rt_1"));
+            Assert.AreEqual("https://id.example.test/oauth/token/revoke", sent.Url);
+            var form = Encoding.UTF8.GetString(sent.Body);
+            StringAssert.Contains("client_id=unity_dev_client", form);
+            StringAssert.Contains("token=rt_1", form);
+        }
+
+        [Test]
+        public void TheAppIsProductionOrBothDeveloperVariables()
+        {
+            Func<string, string> Env(params string[] pairs)
+            {
+                var values = new Dictionary<string, string>();
+                for (var i = 0; i < pairs.Length; i += 2) values[pairs[i]] = pairs[i + 1];
+                return name => values.TryGetValue(name, out var value) ? value : null;
+            }
+
+            var production = OAuthApp.Select(Env());
+            Assert.AreEqual(OAuthApp.ProductionIssuer, production.Value.Issuer);
+            Assert.AreEqual(OAuthApp.ProductionClientId, production.Value.ClientId);
+
+            var dev = OAuthApp.Select(Env(OAuthApp.IssuerVariable, " https://id.example.test/ ", OAuthApp.ClientIdVariable, "unity_dev_client"));
+            Assert.AreEqual("https://id.example.test", dev.Value.Issuer);
+            Assert.AreEqual("unity_dev_client", dev.Value.ClientId);
+            Assert.AreEqual("https://id.example.test/oauth/userinfo", dev.Value.UserInfoEndpoint);
+
+            foreach (var wrong in new[]
+                     {
+                         Env(OAuthApp.IssuerVariable, "https://id.example.test"),
+                         Env(OAuthApp.ClientIdVariable, "unity_dev_client"),
+                         Env(OAuthApp.IssuerVariable, "http://id.example.test", OAuthApp.ClientIdVariable, "unity_dev_client"),
+                     })
+            {
+                var result = OAuthApp.Select(wrong);
+                Assert.IsFalse(result.Ok);
+                StringAssert.Contains(OAuthApp.IssuerVariable, result.Error.Message);
+                StringAssert.Contains(OAuthApp.ClientIdVariable, result.Error.Message);
+            }
         }
 
         [Test]
@@ -188,6 +232,7 @@ namespace Scenario.Editor.Tests
             using (var listener = LoopbackListener.Start())
             {
                 Assert.IsNotNull(listener);
+                Assert.AreEqual($"http://127.0.0.1:{listener.Port}/callback", listener.RedirectUri);
                 var wait = listener.WaitForCode("good", TimeSpan.FromSeconds(10), default);
                 using (var http = new HttpClient())
                 {
@@ -245,7 +290,7 @@ namespace Scenario.Editor.Tests
         [UnityTest]
         public IEnumerator OpensTheBrowserFromTheMainThread_AndCancelBringsThePanelBack()
         {
-            var server = new FakeMcp { Other = request => new HttpReply { Status = 201, Body = "{\"client_id\":\"client_new\"}" } };
+            var server = new FakeMcp { Other = request => new HttpReply { Status = 500 } };
             var s = ScenarioService.UseForTests(new WorkerThreadTransport(server), TempDir.Make("signin"));
             string opened = null;
             var onMainThread = false;
@@ -260,7 +305,9 @@ namespace Scenario.Editor.Tests
             while (opened == null && EditorApplication.timeSinceStartup < until) yield return null;
             Assert.IsNotNull(opened, "the browser was asked to open");
             Assert.IsTrue(onMainThread, "Unity opens URLs only from the main thread");
-            StringAssert.StartsWith("https://mcp.scenario.com/oauth/authorize?", opened);
+            StringAssert.StartsWith("https://clerk.scenario.com/oauth/authorize?", opened);
+            StringAssert.Contains("client_id=" + OAuthApp.ProductionClientId, opened);
+            Assert.IsFalse(server.Requests.Any(r => r.Url.Contains("/register")), "no client registration: Unity signs in as its registered application");
             Assert.AreEqual(SignInState.SigningIn, s.State);
 
             s.CancelSignIn();
@@ -269,6 +316,46 @@ namespace Scenario.Editor.Tests
             Assert.IsTrue(signIn.IsCompleted, "the sign-in ended");
             Assert.AreEqual(SignInState.SignedOut, s.State);
             Assert.AreEqual("", s.SignInError);
+        }
+    }
+
+    /// <summary>A saved browser sign-in resumes only when Unity's application issued it.</summary>
+    public class SavedSessionTests
+    {
+        [TearDown]
+        public void TearDown() => ScenarioService.ResetForTests();
+
+        static CredentialStore StoreWithSession(string folder, string clientId)
+        {
+            var store = new CredentialStore(Path.Combine(folder, "credentials.json"), new MemorySecretStore());
+            store.SaveRefreshToken("rt_saved", new JObject { ["client_id"] = clientId, ["email"] = "me@x.com" });
+            return store;
+        }
+
+        [Test]
+        public void ASessionFromUnitysApplicationResumes()
+        {
+            var folder = TempDir.Make("saved-app");
+            var store = StoreWithSession(folder, OAuthApp.ProductionClientId);
+            var s = ScenarioService.UseForTests(new FakeMcp(), folder, store);
+            Assert.AreEqual(SignInState.SignedIn, s.State);
+            Assert.AreEqual(AuthMethod.OAuth, s.Method);
+            Assert.AreEqual("me@x.com", s.AccountLabel);
+            Assert.AreEqual("oauth", store.Load().Method);
+        }
+
+        [Test]
+        public void ASessionFromAnotherClientIsForgottenWithoutARequest()
+        {
+            var folder = TempDir.Make("saved-other");
+            // A client this install registered through the hosted MCP before Unity had its own application.
+            var store = StoreWithSession(folder, "registered_per_install");
+            var server = new FakeMcp();
+            var s = ScenarioService.UseForTests(server, folder, store);
+            Assert.AreEqual(SignInState.SignedOut, s.State);
+            Assert.IsFalse(s.Client.HasCredentials);
+            Assert.AreEqual("", store.Load().Method, "the token is deleted");
+            Assert.AreEqual(0, server.Requests.Count, "and never sent to a provider that did not issue it");
         }
     }
 }

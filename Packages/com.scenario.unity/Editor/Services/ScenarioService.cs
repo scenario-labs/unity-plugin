@@ -71,7 +71,9 @@ namespace Scenario.Editor
         public readonly JobLedger Ledger;
         public readonly Catalog Catalog;
         public readonly QuoteBook Quotes = new QuoteBook();
+        /// <summary>Null when the SCENARIO_OAUTH_* variables are set wrong: browser sign-in then says why.</summary>
         readonly OAuthClient _oauth;
+        readonly string _oauthProblem;
 
         public SignInState State { get; private set; }
         public AuthMethod Method => Client.Auth.Method;
@@ -113,7 +115,9 @@ namespace Scenario.Editor
             Ledger.Changed += () => Changed?.Invoke();
             Catalog = new Catalog(catalogPath);
             Catalog.Load();
-            _oauth = new OAuthClient(Client.Transport);
+            var app = readEnvironment ? OAuthApp.Select(Environment.GetEnvironmentVariable) : Result<OAuthApp>.Success(OAuthApp.Production);
+            _oauth = app.Ok ? new OAuthClient(Client.Transport, app.Value) : null;
+            _oauthProblem = app.Ok ? "" : app.Error.Message;
             Client.SpendingDisabled = Environment.GetEnvironmentVariable("SCENARIO_NO_SPEND") == "1" || ScenarioUserSettings.instance.SpendingDisabled;
             Restore(readEnvironment);
             EditorApplication.update += Tick;
@@ -123,13 +127,14 @@ namespace Scenario.Editor
 
         /// <summary>
         /// Tests: replaces the shared service with one on this transport, with its ledger,
-        /// catalog and credentials in a temp folder and no environment credentials.
+        /// catalog and credentials in a temp folder (or the given store, to start from a saved
+        /// sign-in) and no environment credentials.
         /// </summary>
-        internal static ScenarioService UseForTests(ITransport transport, string folder)
+        internal static ScenarioService UseForTests(ITransport transport, string folder, CredentialStore credentials = null)
         {
             ResetForTests();
             Uploader.CachePath = System.IO.Path.Combine(folder, "uploads.json");
-            var credentials = new CredentialStore(System.IO.Path.Combine(folder, "credentials.json"), new MemorySecretStore());
+            credentials = credentials ?? new CredentialStore(System.IO.Path.Combine(folder, "credentials.json"), new MemorySecretStore());
             _instance = new ScenarioService(transport, credentials, System.IO.Path.Combine(folder, "jobs.json"), System.IO.Path.Combine(folder, "catalog.json"), readEnvironment: false);
             return _instance;
         }
@@ -173,16 +178,26 @@ namespace Scenario.Editor
                     Client.SetAuth(new ApiKeyAuth(saved.ApiKey, saved.Secret));
                     State = SignInState.SignedIn;
                 }
-                else if (saved.Method == "oauth")
+                else if (saved.Method == "oauth" && _oauth != null)
                 {
-                    var tokens = new OAuthTokens
+                    if (Json.Str(saved.Info, "client_id") == _oauth.App.ClientId)
                     {
-                        RefreshToken = saved.Secret,
-                        AccessToken = SessionState.GetString(AccessTokenKey, ""),
-                        ExpiresAt = SessionState.GetFloat(AccessExpiryKey, 0),
-                    };
-                    UseOAuth(Json.Str(saved.Info, "client_id"), tokens, Json.Str(saved.Info, "email"));
-                    State = SignInState.SignedIn;
+                        var tokens = new OAuthTokens
+                        {
+                            RefreshToken = saved.Secret,
+                            AccessToken = SessionState.GetString(AccessTokenKey, ""),
+                            ExpiresAt = SessionState.GetFloat(AccessExpiryKey, 0),
+                        };
+                        UseOAuth(tokens, Json.Str(saved.Info, "email"));
+                        State = SignInState.SignedIn;
+                    }
+                    else
+                    {
+                        // Saved by another application (a client this install registered before, or
+                        // another identity provider): this one cannot refresh it. Forget it without
+                        // sending it anywhere; the person signs in once more.
+                        Credentials.Clear();
+                    }
                 }
             }
             var user = ScenarioUserSettings.instance;
@@ -191,20 +206,20 @@ namespace Scenario.Editor
             if (Client.Auth is ApiKeyAuth) EditorApplication.delayCall += () => _ = LoadTeams();
         }
 
-        void UseOAuth(string clientId, OAuthTokens tokens, string email)
+        void UseOAuth(OAuthTokens tokens, string email)
         {
-            var auth = new OAuthAuth(_oauth, clientId, tokens, email);
-            auth.TokensChanged += rotated => MainThread.Post(() => SaveTokens(clientId, rotated, email));
+            var auth = new OAuthAuth(_oauth, tokens, email);
+            auth.TokensChanged += rotated => MainThread.Post(() => SaveTokens(rotated, email));
             Client.SetAuth(auth);
             RememberAccess(tokens);
         }
 
-        void SaveTokens(string clientId, OAuthTokens tokens, string email)
+        void SaveTokens(OAuthTokens tokens, string email)
         {
             RememberAccess(tokens);
             var saved = Credentials.Load();
             var info = saved.Info ?? new JObject();
-            info["client_id"] = clientId;
+            info["client_id"] = _oauth.App.ClientId;
             info["email"] = email;
             Credentials.SaveRefreshToken(tokens.RefreshToken, info);
         }
@@ -227,6 +242,12 @@ namespace Scenario.Editor
         public async Task SignInWithBrowser()
         {
             CancelSignIn();
+            if (_oauth == null)
+            {
+                SignInError = _oauthProblem;
+                Emit();
+                return;
+            }
             var signIn = new CancellationTokenSource();
             _signIn = signIn;
             State = SignInState.SigningIn;
@@ -235,10 +256,8 @@ namespace Scenario.Editor
             Result<OAuthSession> result;
             try
             {
-                var saved = Credentials.Load();
                 // The sign-in resumes on worker threads after its network calls, and Unity opens URLs only from the main thread.
-                result = await OAuthSignIn.Run(_oauth, url => MainThread.Post(() => OpenUrl(url)), Json.Str(saved.Info, "client_id"), Json.Str(saved.Info, "redirect_uri"),
-                    TimeSpan.FromMinutes(5), signIn.Token);
+                result = await OAuthSignIn.Run(_oauth, url => MainThread.Post(() => OpenUrl(url)), TimeSpan.FromMinutes(5), signIn.Token);
             }
             catch (Exception e)
             {
@@ -256,7 +275,7 @@ namespace Scenario.Editor
             }
             var session = result.Value;
             Credentials.SaveRefreshToken(session.Tokens.RefreshToken, session.Info());
-            UseOAuth(session.ClientId, session.Tokens, session.Email);
+            UseOAuth(session.Tokens, session.Email);
             State = SignInState.SignedIn;
             Quotes.Clear();
             Emit();
@@ -312,11 +331,7 @@ namespace Scenario.Editor
 
         public void SignOut()
         {
-            if (Client.Auth is OAuthAuth oauth)
-            {
-                var token = oauth.Tokens.RefreshToken;
-                _ = _oauth.Revoke(oauth.ClientId, token);
-            }
+            if (Client.Auth is OAuthAuth oauth && _oauth != null) _ = _oauth.Revoke(oauth.Tokens.RefreshToken);
             Credentials.Clear();
             SessionState.EraseString(AccessTokenKey);
             Client.SetAuth(new NoAuth());

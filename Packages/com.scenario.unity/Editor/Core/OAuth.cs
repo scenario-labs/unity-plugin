@@ -21,27 +21,66 @@ namespace Scenario.Editor.Core
     }
 
     /// <summary>
-    /// "Sign in with Scenario": OAuth 2.1 authorization code with PKCE against the
-    /// Scenario MCP authorization server, a loopback redirect, and dynamic client
-    /// registration (no client secret ships in the plugin). Endpoints checked
-    /// against /.well-known/oauth-authorization-server on 2026-10-18.
+    /// Scenario's identity provider and the registered OAuth application Unity signs in
+    /// as: a public client (no secret ships in the plugin) whose one redirect URI,
+    /// http://127.0.0.1/callback, the provider matches without the port. Endpoints
+    /// checked against /.well-known/oauth-authorization-server on 2026-11-09.
+    /// </summary>
+    public sealed class OAuthApp
+    {
+        public const string ProductionIssuer = "https://clerk.scenario.com";
+        /// <summary>"Scenario for Unity" on the production identity provider. A public client id, not a secret.</summary>
+        public const string ProductionClientId = "7KFTIhEklYR5rU4Q";
+        public const string IssuerVariable = "SCENARIO_OAUTH_ISSUER";
+        public const string ClientIdVariable = "SCENARIO_OAUTH_CLIENT_ID";
+
+        public static readonly OAuthApp Production = new OAuthApp(ProductionIssuer, ProductionClientId);
+
+        public readonly string Issuer;
+        public readonly string ClientId;
+
+        public OAuthApp(string issuer, string clientId)
+        {
+            Issuer = (issuer ?? "").Trim().TrimEnd('/');
+            ClientId = (clientId ?? "").Trim();
+        }
+
+        public string AuthorizationEndpoint => Issuer + "/oauth/authorize";
+        public string TokenEndpoint => Issuer + "/oauth/token";
+        public string RevocationEndpoint => Issuer + "/oauth/token/revoke";
+        public string UserInfoEndpoint => Issuer + "/oauth/userinfo";
+
+        /// <summary>
+        /// Production, or the development provider and application named by both
+        /// SCENARIO_OAUTH_ISSUER (HTTPS) and SCENARIO_OAUTH_CLIENT_ID.
+        /// </summary>
+        public static Result<OAuthApp> Select(Func<string, string> environment)
+        {
+            var issuer = (environment(IssuerVariable) ?? "").Trim();
+            var clientId = (environment(ClientIdVariable) ?? "").Trim();
+            if (issuer.Length == 0 && clientId.Length == 0) return Result<OAuthApp>.Success(Production);
+            if (issuer.Length == 0 || clientId.Length == 0 || !issuer.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return Result<OAuthApp>.Fail(ErrorKind.Local, $"Set {IssuerVariable} (HTTPS) and {ClientIdVariable} together, or neither.");
+            return Result<OAuthApp>.Success(new OAuthApp(issuer, clientId));
+        }
+    }
+
+    /// <summary>
+    /// "Sign in with Scenario": OAuth 2.1 authorization code with PKCE against Scenario's
+    /// identity provider, as Unity's registered application, with a loopback redirect.
     /// </summary>
     public sealed class OAuthClient
     {
-        public string AuthorizationEndpoint = "https://mcp.scenario.com/oauth/authorize";
-        public string TokenEndpoint = "https://mcp.scenario.com/oauth/token";
-        public string RegistrationEndpoint = "https://mcp.scenario.com/oauth/register";
-        public string RevocationEndpoint = "https://clerk.scenario.com/oauth/token/revoke";
-        public string UserInfoEndpoint = "https://clerk.scenario.com/oauth/userinfo";
-        public string Resource = "https://mcp.scenario.com/mcp";
+        /// <summary>The account chip shows the email and name, and every session needs a refresh token.</summary>
         public string Scope = "email offline_access profile";
-        public string ClientName = "Scenario for Unity";
+        public readonly OAuthApp App;
 
         readonly ITransport _transport;
 
-        public OAuthClient(ITransport transport)
+        public OAuthClient(ITransport transport, OAuthApp app)
         {
             _transport = transport;
+            App = app;
         }
 
         // --- PKCE -----------------------------------------------------------
@@ -62,66 +101,44 @@ namespace Scenario.Editor.Core
 
         // --- Endpoints ------------------------------------------------------
 
-        /// <summary>Registers this plugin as a public client for one redirect URI. Returns the client id.</summary>
-        public async Task<Result<string>> Register(string redirectUri, CancellationToken cancel = default)
-        {
-            var body = new JObject
-            {
-                ["client_name"] = ClientName,
-                ["redirect_uris"] = new JArray(redirectUri),
-                ["grant_types"] = new JArray("authorization_code", "refresh_token"),
-                ["response_types"] = new JArray("code"),
-                ["token_endpoint_auth_method"] = "none",
-                ["scope"] = Scope,
-            };
-            var reply = await _transport.SendAsync(HttpRequests.JsonPost(RegistrationEndpoint, body.ToString(Newtonsoft.Json.Formatting.None), 30), cancel);
-            var data = Json.ParseObject(reply.Body);
-            var clientId = Json.Str(data, "client_id");
-            if (reply.IsSuccess && clientId.Length > 0) return Result<string>.Success(clientId);
-            return Result<string>.Fail(KindFor(reply), "Scenario did not register the sign-in: " + Describe(reply, data));
-        }
-
-        public string AuthorizeUrl(string clientId, string redirectUri, string state, string challenge)
+        public string AuthorizeUrl(string redirectUri, string state, string challenge)
         {
             var query = new Dictionary<string, string>
             {
                 ["response_type"] = "code",
-                ["client_id"] = clientId,
+                ["client_id"] = App.ClientId,
                 ["redirect_uri"] = redirectUri,
                 ["scope"] = Scope,
                 ["state"] = state,
                 ["code_challenge"] = challenge,
                 ["code_challenge_method"] = "S256",
-                ["resource"] = Resource,
             };
             var parts = new List<string>();
             foreach (var pair in query) parts.Add(Uri.EscapeDataString(pair.Key) + "=" + Uri.EscapeDataString(pair.Value));
-            return AuthorizationEndpoint + "?" + string.Join("&", parts);
+            return App.AuthorizationEndpoint + "?" + string.Join("&", parts);
         }
 
-        public Task<Result<OAuthTokens>> Exchange(string clientId, string code, string redirectUri, string verifier, double now, CancellationToken cancel = default)
+        public Task<Result<OAuthTokens>> Exchange(string code, string redirectUri, string verifier, double now, CancellationToken cancel = default)
             => Token(new Dictionary<string, string>
             {
                 ["grant_type"] = "authorization_code",
                 ["code"] = code,
                 ["redirect_uri"] = redirectUri,
-                ["client_id"] = clientId,
+                ["client_id"] = App.ClientId,
                 ["code_verifier"] = verifier,
-                ["resource"] = Resource,
             }, now, "", cancel);
 
-        public Task<Result<OAuthTokens>> Refresh(string clientId, string refreshToken, double now, CancellationToken cancel = default)
+        public Task<Result<OAuthTokens>> Refresh(string refreshToken, double now, CancellationToken cancel = default)
             => Token(new Dictionary<string, string>
             {
                 ["grant_type"] = "refresh_token",
                 ["refresh_token"] = refreshToken,
-                ["client_id"] = clientId,
-                ["resource"] = Resource,
+                ["client_id"] = App.ClientId,
             }, now, refreshToken, cancel);
 
         async Task<Result<OAuthTokens>> Token(Dictionary<string, string> form, double now, string previousRefresh, CancellationToken cancel)
         {
-            var reply = await _transport.SendAsync(HttpRequests.FormPost(TokenEndpoint, form, 30), cancel);
+            var reply = await _transport.SendAsync(HttpRequests.FormPost(App.TokenEndpoint, form, 30), cancel);
             var data = Json.ParseObject(reply.Body);
             var access = Json.Str(data, "access_token");
             if (!reply.IsSuccess || access.Length == 0)
@@ -142,17 +159,17 @@ namespace Scenario.Editor.Core
             });
         }
 
-        public async Task Revoke(string clientId, string token, CancellationToken cancel = default)
+        public async Task Revoke(string token, CancellationToken cancel = default)
         {
             if (string.IsNullOrEmpty(token)) return;
-            var form = new Dictionary<string, string> { ["token"] = token, ["client_id"] = clientId, ["token_type_hint"] = "refresh_token" };
-            await _transport.SendAsync(HttpRequests.FormPost(RevocationEndpoint, form, 15), cancel);
+            var form = new Dictionary<string, string> { ["token"] = token, ["client_id"] = App.ClientId, ["token_type_hint"] = "refresh_token" };
+            await _transport.SendAsync(HttpRequests.FormPost(App.RevocationEndpoint, form, 15), cancel);
         }
 
         /// <summary>Email and name for the account chip. Falls back to the access token's claims.</summary>
         public async Task<JObject> UserInfo(string accessToken, CancellationToken cancel = default)
         {
-            var request = new HttpRequestSpec { Method = "GET", Url = UserInfoEndpoint, TimeoutSeconds = 15 };
+            var request = new HttpRequestSpec { Method = "GET", Url = App.UserInfoEndpoint, TimeoutSeconds = 15 };
             request.Headers["Authorization"] = "Bearer " + accessToken;
             var reply = await _transport.SendAsync(request, cancel);
             var data = reply.IsSuccess ? Json.ParseObject(reply.Body) : null;
@@ -195,13 +212,12 @@ namespace Scenario.Editor.Core
     }
 
     /// <summary>
-    /// The browser comes back to http://127.0.0.1:&lt;port&gt;/callback. Ports from a
-    /// small fixed range come first so a cached client registration can be reused.
+    /// The browser comes back to http://127.0.0.1:&lt;port&gt;/callback on any free port:
+    /// the provider matches loopback redirect URIs on scheme, host and path only
+    /// (RFC 8252, 7.3), so no fixed port can be busy.
     /// </summary>
     public sealed class LoopbackListener : IDisposable
     {
-        public static readonly int[] PreferredPorts = { 47321, 47322, 47323, 47324, 47325 };
-
         readonly HttpListener _listener;
         public readonly int Port;
         public string RedirectUri => $"http://127.0.0.1:{Port}/callback";
@@ -214,14 +230,14 @@ namespace Scenario.Editor.Core
 
         public static LoopbackListener Start()
         {
-            foreach (var port in PreferredPorts)
+            // Another program can take the probed port before the listener does: try again.
+            for (var attempt = 0; attempt < 3; attempt++)
             {
+                var port = FreePort();
                 var listener = TryListen(port);
                 if (listener != null) return new LoopbackListener(listener, port);
             }
-            var free = FreePort();
-            var fallback = TryListen(free);
-            return fallback != null ? new LoopbackListener(fallback, free) : null;
+            return null;
         }
 
         static HttpListener TryListen(int port)
@@ -325,35 +341,23 @@ namespace Scenario.Editor.Core
     {
         public OAuthTokens Tokens;
         public string ClientId = "";
-        public string RedirectUri = "";
         public string Email = "";
         public string Name = "";
 
-        public JObject Info() => new JObject { ["client_id"] = ClientId, ["redirect_uri"] = RedirectUri, ["email"] = Email, ["name"] = Name };
+        public JObject Info() => new JObject { ["client_id"] = ClientId, ["email"] = Email, ["name"] = Name };
     }
 
     public static class OAuthSignIn
     {
-        /// <summary>
-        /// Full browser sign-in. openBrowser receives the authorize URL. A cached
-        /// registration (clientId for the same redirect URI) is reused.
-        /// </summary>
-        public static async Task<Result<OAuthSession>> Run(OAuthClient client, Action<string> openBrowser, string cachedClientId, string cachedRedirectUri,
-            TimeSpan timeout, CancellationToken cancel = default)
+        /// <summary>Full browser sign-in. openBrowser receives the authorize URL.</summary>
+        public static async Task<Result<OAuthSession>> Run(OAuthClient client, Action<string> openBrowser, TimeSpan timeout, CancellationToken cancel = default)
         {
             using (var listener = LoopbackListener.Start())
             {
                 if (listener == null) return Result<OAuthSession>.Fail(ErrorKind.Local, "Could not open a local port for the sign-in. Use an API key instead.");
-                var clientId = cachedRedirectUri == listener.RedirectUri ? cachedClientId ?? "" : "";
-                if (clientId.Length == 0)
-                {
-                    var registered = await client.Register(listener.RedirectUri, cancel).ConfigureAwait(false);
-                    if (!registered.Ok) return registered.Cast<OAuthSession>();
-                    clientId = registered.Value;
-                }
                 var verifier = OAuthClient.RandomToken(48);
                 var state = OAuthClient.RandomToken(16);
-                openBrowser(client.AuthorizeUrl(clientId, listener.RedirectUri, state, OAuthClient.Challenge(verifier)));
+                openBrowser(client.AuthorizeUrl(listener.RedirectUri, state, OAuthClient.Challenge(verifier)));
                 var callback = await listener.WaitForCode(state, timeout, cancel).ConfigureAwait(false);
                 if (callback.Code.Length == 0)
                 {
@@ -361,14 +365,13 @@ namespace Scenario.Editor.Core
                     var message = kind == ErrorKind.Timeout ? "The sign-in timed out. Try again." : kind == ErrorKind.Canceled ? "Sign-in canceled." : "Sign-in was not completed: " + callback.Error;
                     return Result<OAuthSession>.Fail(kind, message);
                 }
-                var tokens = await client.Exchange(clientId, callback.Code, listener.RedirectUri, verifier, Json.Now(), cancel).ConfigureAwait(false);
+                var tokens = await client.Exchange(callback.Code, listener.RedirectUri, verifier, Json.Now(), cancel).ConfigureAwait(false);
                 if (!tokens.Ok) return tokens.Cast<OAuthSession>();
                 var user = await client.UserInfo(tokens.Value.AccessToken, cancel).ConfigureAwait(false);
                 return Result<OAuthSession>.Success(new OAuthSession
                 {
                     Tokens = tokens.Value,
-                    ClientId = clientId,
-                    RedirectUri = listener.RedirectUri,
+                    ClientId = client.App.ClientId,
                     Email = Json.Str(user, "email"),
                     Name = Json.Str(user, "name", Json.Str(user, "given_name")),
                 });
@@ -381,17 +384,15 @@ namespace Scenario.Editor.Core
     {
         readonly OAuthClient _client;
         readonly SemaphoreSlim _refreshing = new SemaphoreSlim(1, 1);
-        public readonly string ClientId;
         public OAuthTokens Tokens;
         public string Email;
 
         /// <summary>Raised (on a worker thread) when the refresh token rotated and must be saved.</summary>
         public event Action<OAuthTokens> TokensChanged;
 
-        public OAuthAuth(OAuthClient client, string clientId, OAuthTokens tokens, string email)
+        public OAuthAuth(OAuthClient client, OAuthTokens tokens, string email)
         {
             _client = client;
-            ClientId = clientId ?? "";
             Tokens = tokens ?? new OAuthTokens();
             Email = email ?? "";
         }
@@ -416,7 +417,7 @@ namespace Scenario.Editor.Core
                 // Another caller refreshed while this one waited.
                 if (Tokens.AccessToken != before && Tokens.IsFresh(Json.Now())) return true;
                 if (Tokens.RefreshToken.Length == 0) return false;
-                var result = await _client.Refresh(ClientId, Tokens.RefreshToken, Json.Now()).ConfigureAwait(false);
+                var result = await _client.Refresh(Tokens.RefreshToken, Json.Now()).ConfigureAwait(false);
                 if (!result.Ok)
                 {
                     if (result.Error.SessionExpired) Tokens = new OAuthTokens();
