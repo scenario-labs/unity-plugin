@@ -341,7 +341,9 @@ namespace Scenario.Editor.UI
             {
                 if (s.Teams.Count == 0)
                 {
-                    menu.AddDisabledItem(new GUIContent(s.TeamsLoading ? "Loading teams and projects…" : "No project loaded yet"));
+                    // Not read yet in this editor session (the list is read once per session): read it now.
+                    if (!s.TeamsLoading) _ = s.LoadTeams();
+                    menu.AddDisabledItem(new GUIContent("Loading teams and projects…"));
                     menu.AddSeparator("");
                 }
                 foreach (var team in s.Teams)

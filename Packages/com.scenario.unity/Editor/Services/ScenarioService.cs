@@ -59,6 +59,8 @@ namespace Scenario.Editor
     {
         const string AccessTokenKey = "Scenario.AccessToken";
         const string AccessExpiryKey = "Scenario.AccessExpiry";
+        /// <summary>Session state: the account's teams were checked once in this editor session.</summary>
+        internal const string TeamsCheckedKey = "Scenario.TeamsChecked";
         const string LedgerPath = "Library/Scenario/jobs.json";
         const string CatalogPath = "Library/Scenario/catalog.json";
 
@@ -186,6 +188,11 @@ namespace Scenario.Editor
                 }
                 else if (saved.Method == "oauth" && _oauth != null)
                 {
+                    // Resumed only when issued to this application. A session from another one (a client an
+                    // earlier version registered, or another identity provider) cannot be refreshed here: it
+                    // is not resumed and never sent anywhere. It stays in the store, which every Unity project
+                    // on this machine shares (another project may still run that version); the next sign-in
+                    // replaces it.
                     if (Json.Str(saved.Info, "client_id") == _oauth.App.ClientId)
                     {
                         var tokens = new OAuthTokens
@@ -197,27 +204,35 @@ namespace Scenario.Editor
                         UseOAuth(tokens, Json.Str(saved.Info, "email"));
                         State = SignInState.SignedIn;
                     }
-                    else
-                    {
-                        // Saved by another application (a client this install registered before, or
-                        // another identity provider): this one cannot refresh it. Forget it without
-                        // sending it anywhere; the person signs in once more.
-                        Credentials.Clear();
-                    }
                 }
             }
             var user = ScenarioUserSettings.instance;
             Client.SetScope(user.TeamId, user.ProjectId);
-            // A free read: it checks that the saved project is still this account's, fills the project
-            // menus, and gives an API key's own project name to the header.
-            // Only while this is still the shared service: a test may have replaced it in the meantime.
-            if (State == SignInState.SignedIn) EditorApplication.delayCall += () => { if (_instance == this) _ = LoadTeams(autoPick: true); };
+            if (State != SignInState.SignedIn) return;
+            // An API key sees only its own project: read its name for the header (free), as before.
+            if (Client.Auth is ApiKeyAuth) EditorApplication.delayCall += () => { if (_instance == this) _ = LoadTeams(); };
+            // A Scenario account: once per editor session (not after every script reload), a free read
+            // checks that the saved project is still the account's and fills the project menus. Quiet
+            // when offline: the saved choice stays, and the next session checks again.
+            else if (!SessionState.GetBool(TeamsCheckedKey, false))
+                EditorApplication.delayCall += () =>
+                {
+                    // Only while this is still the shared service: a test may have replaced it in the meantime.
+                    if (_instance != this) return;
+                    SessionState.SetBool(TeamsCheckedKey, true);
+                    _ = LoadTeams(autoPick: true, quiet: true);
+                };
         }
 
         void UseOAuth(OAuthTokens tokens, string email)
         {
             var auth = new OAuthAuth(_oauth, tokens, email);
-            auth.TokensChanged += rotated => MainThread.Post(() => SaveTokens(rotated, email));
+            // Saved only while this session is still the one in use: a refresh that lands after Sign
+            // out (or another sign-in) must not bring the old session back.
+            auth.TokensChanged += rotated => MainThread.Post(() =>
+            {
+                if (Client.Auth == auth) SaveTokens(rotated, email);
+            });
             Client.SetAuth(auth);
             RememberAccess(tokens);
         }
@@ -384,7 +399,19 @@ namespace Scenario.Editor
             Quotes.Clear();
         }
 
-        public async Task LoadTeams(bool autoPick = false)
+        Task _teamsLoad;
+
+        /// <summary>
+        /// Reads the account's teams and projects (free). One read at a time: a second caller
+        /// shares the read in flight. quiet: a failure is not shown (the check at editor start).
+        /// </summary>
+        public Task LoadTeams(bool autoPick = false, bool quiet = false)
+        {
+            if (_teamsLoad != null && !_teamsLoad.IsCompleted) return _teamsLoad;
+            return _teamsLoad = ReadTeams(autoPick, quiet);
+        }
+
+        async Task ReadTeams(bool autoPick, bool quiet)
         {
             if (!IsSignedIn) return;
             TeamsLoading = true;
@@ -394,7 +421,7 @@ namespace Scenario.Editor
             if (!teams.Ok)
             {
                 if (teams.Error.Kind == ErrorKind.Auth && Client.Auth is OAuthAuth) ExpireSession();
-                else Notify(teams.Error.Message, "error");
+                else if (!quiet) Notify(teams.Error.Message, "error");
                 Emit();
                 return;
             }
@@ -430,18 +457,24 @@ namespace Scenario.Editor
             var all = Teams.SelectMany(t => t.Projects.Select(p => (t, p))).ToList();
             if (Client.Auth.NeedsScope)
             {
+                var hadProject = user.ProjectId.Length > 0 || Client.ProjectId.Length > 0;
+                // The saved team listed without its projects: nothing says the project is gone.
+                var savedTeam = (value["teams"] as JArray ?? new JArray()).OfType<JObject>().FirstOrDefault(t => Json.Str(t, "id") == user.TeamId);
+                if (hadProject && savedTeam != null && !(savedTeam["projects"] is JArray)) return;
+                // Otherwise the saved project is not among this account's any more (deleted, access
+                // removed, or saved under another identity provider): never send work there.
+                var gone = user.ProjectName.Length > 0 ? user.ProjectName : "The project you worked in";
                 if (autoPick && all.Count == 1)
                 {
                     SelectWorkspace(all[0].t.Id, all[0].p.Id, quiet: true);
+                    // Generations go to another project from now on: say so.
+                    if (hadProject) Notify($"{gone} is not available to this account any more. Working in {all[0].p.Name} now.", "warning");
                     return;
                 }
-                // The saved project is not among this account's any more (deleted, access removed, or
-                // saved under another identity provider): ask again rather than send work there.
-                if (user.ProjectId.Length > 0 || Client.ProjectId.Length > 0)
+                if (hadProject)
                 {
-                    var gone = user.ProjectName;
                     ClearWorkspace();
-                    Notify((gone.Length > 0 ? gone : "The project you worked in") + " is not available to this account any more. Pick a project.", "warning");
+                    Notify($"{gone} is not available to this account any more. Pick a project.", "warning");
                 }
             }
             else if (all.Count >= 1)

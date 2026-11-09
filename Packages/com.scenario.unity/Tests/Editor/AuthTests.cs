@@ -327,7 +327,7 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
-        public void ASessionFromAnotherClientIsForgottenWithoutARequest()
+        public void ASessionFromAnotherClient_IsNotResumed_NorSentAnywhere()
         {
             var folder = TempDir.Make("saved-other");
             // A client this install registered through the hosted MCP before Unity had its own application.
@@ -336,8 +336,9 @@ namespace Scenario.Editor.Tests
             var s = ScenarioService.UseForTests(server, folder, store);
             Assert.AreEqual(SignInState.SignedOut, s.State);
             Assert.IsFalse(s.Client.HasCredentials);
-            Assert.AreEqual("", store.Load().Method, "the token is deleted");
-            Assert.AreEqual(0, server.Requests.Count, "and never sent to a provider that did not issue it");
+            Assert.AreEqual(0, server.Requests.Count, "never sent to a provider that did not issue it");
+            // The store is shared by every Unity project on the machine: another may still run that version.
+            Assert.AreEqual("oauth", store.Load().Method, "left for the version that issued it, until the next sign-in");
         }
     }
 
@@ -415,6 +416,27 @@ namespace Scenario.Editor.Tests
             Assert.IsFalse(result.Ok);
             StringAssert.Contains("not available", result.Error.Message);
             StringAssert.DoesNotContain("urn:ietf", result.Error.Message);
+        }
+
+        [Test]
+        public void StartShowsOtherProviderErrorsAsTheyAre()
+        {
+            // A mistyped SCENARIO_OAUTH_CLIENT_ID is not "not available yet".
+            var server = new FakeMcp { Other = _ => new HttpReply { Status = 401, Body = "{\"error\":\"invalid_client\",\"error_description\":\"Client not found\"}" } };
+            var result = Run.Sync(new OAuthClient(server, DevApp).StartDevice(0));
+            Assert.IsFalse(result.Ok);
+            StringAssert.Contains("Client not found", result.Error.Message);
+            StringAssert.DoesNotContain("not available", result.Error.Message);
+        }
+
+        [Test]
+        public void PollTreatsARateLimitLikeSlowDown()
+        {
+            var replies = new Queue<HttpReply>(new[] { FakeMcp.Status(429), new HttpReply { Status = 200, Body = TokensReply } });
+            var server = new FakeMcp { Other = _ => replies.Dequeue() };
+            var tokens = Run.Sync(new OAuthClient(server, DevApp).PollDevice(Code(), () => 0));
+            Assert.AreEqual("at1", tokens.Value.AccessToken);
+            CollectionAssert.AreEqual(new[] { 5.0, 10.0 }, server.Delays);
         }
 
         [Test]

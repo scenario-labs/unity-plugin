@@ -179,8 +179,11 @@ namespace Scenario.Editor.Core
             };
             if (!reply.IsSuccess || device.Code.Length == 0 || device.UserCode.Length == 0)
             {
-                // The device grant is switched on per application: a 4xx means this one may not use it.
-                var refused = reply.Answered && reply.Status >= 400 && reply.Status < 500 && reply.Status != 429;
+                // The device grant is switched on per application: the provider refuses it for this one with
+                // invalid_grant (checked 2026-11-09) or, per RFC 8628, unauthorized_client. Any other error
+                // (a wrong client id, a refused scope) is shown as the provider gives it.
+                var error = Json.Str(data, "error");
+                var refused = reply.Answered && (error == "invalid_grant" || error == "unauthorized_client");
                 return Result<DeviceCode>.Fail(KindFor(reply), refused
                     ? "Sign-in on another device is not available for Unity yet. Sign in with the browser, or use an API key."
                     : "Sign-in on another device could not start: " + Describe(reply, data));
@@ -210,7 +213,9 @@ namespace Scenario.Editor.Core
                 if (!reply.Answered || reply.Status >= 500) continue;
                 var data = Json.ParseObject(reply.Body);
                 if (reply.IsSuccess) return Tokens(reply, data, clock(), "");
-                switch (Json.Str(data, "error"))
+                // A rate limit without an OAuth error body means the same as slow_down.
+                var error = reply.Status == 429 && Json.Str(data, "error").Length == 0 ? "slow_down" : Json.Str(data, "error");
+                switch (error)
                 {
                     case "authorization_pending":
                         continue;

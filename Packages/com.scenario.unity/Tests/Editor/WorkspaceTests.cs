@@ -41,11 +41,26 @@ namespace Scenario.Editor.Tests
             _server.Tools["models_list"] = (args, i) => FakeMcp.Result(new JObject { ["models"] = new JArray() });
             _folder = TempDir.Make("workspace");
             _notices.Clear();
+            // Each test is a new editor session: the check at start has not run yet, and the saved
+            // session has no access token, so its first call refreshes.
+            SessionState.EraseBool(ScenarioService.TeamsCheckedKey);
+            _accessToken = SessionState.GetString(AccessTokenKey, "");
+            _accessExpiry = SessionState.GetFloat(AccessExpiryKey, 0);
+            SessionState.EraseString(AccessTokenKey);
+            SessionState.EraseFloat(AccessExpiryKey);
         }
+
+        const string AccessTokenKey = "Scenario.AccessToken";
+        const string AccessExpiryKey = "Scenario.AccessExpiry";
+        string _accessToken;
+        float _accessExpiry;
 
         [TearDown]
         public void TearDown()
         {
+            SessionState.EraseBool(ScenarioService.TeamsCheckedKey);
+            SessionState.SetString(AccessTokenKey, _accessToken);
+            SessionState.SetFloat(AccessExpiryKey, _accessExpiry);
             if (_window != null) _window.Close();
             ScenarioService.ResetForTests();
             EditorJsonUtility.FromJsonOverwrite(_settings, ScenarioUserSettings.instance);
@@ -145,13 +160,32 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
-        public void ASavedProjectThatIsGone_WithASingleProjectLeft_TakesIt()
+        public void ASavedProjectThatIsGone_WithASingleProjectLeft_TakesIt_AndSaysSo()
         {
             Account(("t1", new[] { "p1" }));
             var s = Resume("t9", "p_gone");
             Run.Sync(s.LoadTeams(autoPick: true));
             Assert.IsTrue(s.Ready);
             Assert.AreEqual("p1", s.Client.ProjectId);
+            var notice = _notices.Single(n => n.level == "warning").message;
+            StringAssert.Contains("Project p_gone", notice);
+            StringAssert.Contains("Working in Project p1", notice, "generations go elsewhere now: the person is told");
+        }
+
+        [Test]
+        public void ASavedTeamListedWithoutItsProjects_KeepsTheSavedProject()
+        {
+            _server.Tools["teams_list"] = (args, i) => FakeMcp.Result(new JObject
+            {
+                ["teams"] = new JArray(new JObject { ["id"] = "t1", ["name"] = "Team t1" }, new JObject
+                {
+                    ["id"] = "t2", ["name"] = "Team t2", ["projects"] = new JArray(new JObject { ["id"] = "p3", ["name"] = "Project p3" }),
+                }),
+            });
+            var s = Resume("t1", "p1");
+            Run.Sync(s.LoadTeams(autoPick: true));
+            Assert.AreEqual("p1", s.Client.ProjectId, "nothing says the project is gone");
+            Assert.IsFalse(_notices.Any(n => n.level == "warning"));
         }
 
         [Test]
@@ -194,7 +228,7 @@ namespace Scenario.Editor.Tests
         }
 
         [UnityTest]
-        public IEnumerator EditorStart_ChecksTheSavedProject()
+        public IEnumerator EditorStart_ChecksTheSavedProject_OncePerSession()
         {
             Account(TwoTeams);
             var s = Resume("t1", "p_deleted");
@@ -203,6 +237,60 @@ namespace Scenario.Editor.Tests
             Assert.AreEqual(1, _server.Count("teams_list"), "one free read at start");
             Assert.IsTrue(s.NeedsWorkspace, "the picker comes back without any action");
             Assert.AreEqual(2, s.Teams.Count, "the project menus are filled");
+
+            // A script reload builds the service again in the same editor session: no second read.
+            var again = Resume("t1", "p1");
+            for (var i = 0; i < 10; i++) yield return null;
+            Assert.AreEqual(1, _server.Count("teams_list"), "not after every script reload");
+            Assert.AreEqual("p1", again.Client.ProjectId);
+        }
+
+        [UnityTest]
+        public IEnumerator EditorStart_Offline_KeepsTheChoice_Quietly()
+        {
+            _server.Tools["teams_list"] = (args, i) => FakeMcp.Status(503);
+            var s = Resume("t1", "p1");
+            var until = EditorApplication.timeSinceStartup + 10;
+            while (_server.Count("teams_list") == 0 && EditorApplication.timeSinceStartup < until) yield return null;
+            for (var i = 0; i < 5; i++) yield return null;
+            Assert.AreEqual("p1", s.Client.ProjectId);
+            Assert.IsFalse(_notices.Any(n => n.level == "error"), "a background check does not show a failure");
+        }
+
+        [UnityTest]
+        public IEnumerator TwoReadsAtOnce_ShareOneRequest()
+        {
+            Account(TwoTeams);
+            // No check at start in this test: only the two reads below.
+            SessionState.SetBool(ScenarioService.TeamsCheckedKey, true);
+            // Answers later, like the network: the second caller arrives while the first read is in flight.
+            var s = ScenarioService.UseForTests(new WorkerThreadTransport(_server), _folder, StoreOf(_folder));
+            var before = _server.Count("teams_list");
+            var first = s.LoadTeams(autoPick: true);
+            var second = s.LoadTeams(autoPick: true);
+            Assert.AreSame(first, second);
+            var until = EditorApplication.timeSinceStartup + 10;
+            while (!first.IsCompleted && EditorApplication.timeSinceStartup < until) yield return null;
+            Assert.AreEqual(before + 1, _server.Count("teams_list"));
+        }
+
+        [UnityTest]
+        public IEnumerator ARefreshLandingAfterSignOut_DoesNotBringTheSessionBack()
+        {
+            Account(TwoTeams);
+            var s = Resume("t1", "p1");
+            // The read refreshes the access token; the rotated token is saved on a later editor update.
+            Run.Sync(s.LoadTeams(autoPick: true));
+            s.SignOut();
+            for (var i = 0; i < 10; i++) yield return null;
+            Assert.AreEqual("", s.Credentials.Load().Method, "Sign out stays signed out");
+        }
+
+        static CredentialStore StoreOf(string folder)
+        {
+            var store = new CredentialStore(Path.Combine(folder, "credentials.json"), new MemorySecretStore());
+            store.SaveRefreshToken("rt_saved", new JObject { ["client_id"] = OAuthApp.ProductionClientId, ["email"] = "me@x.com" });
+            return store;
         }
 
         [UnityTest]
