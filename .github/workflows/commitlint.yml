@@ -1,0 +1,31 @@
+name: commitlint
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # A required check in the main rulesets, with pr-title and ci-ok. It lints
+  # every commit the PR adds on top of its base branch with the same
+  # commitlint.config.mjs as the pr-title job in pr-name.yml. Do not rename it.
+  commits:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install commitlint from the lockfile
+        run: pnpm install --frozen-lockfile
+      # The base branch name goes through an environment variable, like the PR
+      # title in pr-name.yml, so nothing from the event is interpolated into the script.
+      - name: Lint the commit messages
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: pnpm exec commitlint --from "origin/$BASE_REF" --to HEAD --verbose

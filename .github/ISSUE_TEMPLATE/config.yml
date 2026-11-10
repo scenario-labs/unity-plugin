@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Account, billing, credits or a security report
+    url: https://app.scenario.com
+    about: Anything tied to your account is private. Use in-app support or support@scenario.com, not a public issue.
+  - name: User guide
+    url: https://github.com/scenario-labs/unity-plugin/blob/main/Packages/com.scenario.unity/Documentation~/USER_GUIDE.md
+    about: Every view step by step, job states, troubleshooting.
+  - name: Scenario Knowledge Base
+    url: https://help.scenario.com
+    about: How the platform, models and credits work.

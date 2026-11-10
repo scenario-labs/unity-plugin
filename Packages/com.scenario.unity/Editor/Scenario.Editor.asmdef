@@ -1,0 +1,32 @@
+{
+    "name": "Scenario.Editor",
+    "rootNamespace": "Scenario.Editor",
+    "references": [
+        "Scenario.Runtime",
+        "glTFast",
+        "glTFast.Editor",
+        "glTFast.Export",
+        "Unity.Mathematics",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Newtonsoft.Json.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.render-pipelines.universal",
+            "expression": "17.0.0",
+            "define": "SCENARIO_URP"
+        }
+    ],
+    "noEngineReferences": false
+}
