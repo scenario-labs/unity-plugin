@@ -165,7 +165,12 @@ Unity license secrets are set (`UNITY_LICENSE`, `UNITY_EMAIL`,
 ## Releases
 
 release-please keeps a release PR open on `main` (`release-please-config.json`).
-Merging it tags `unity-plugin-vX.Y.Z` and drafts the GitHub release. Never edit
+Merging it drafts the GitHub release, and the workflow's publish job then
+publishes the draft, which creates the tag `unity-plugin-vX.Y.Z`. Both run with
+the release GitHub App's token: only that App may create release tags (the
+`versioning` ruleset), and a release PR opened with `GITHUB_TOKEN` would never
+run CI. A run that fails after drafting is fixed by rerunning that same run,
+never by publishing the draft by hand. Never edit
 versions or `CHANGELOG.md` by hand: release-please bumps
 `Packages/com.scenario.unity/package.json`, `McpClient.Version` and the README
 (`x-release-please` markers), and writes the changelog from the squashed PR

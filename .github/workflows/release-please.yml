@@ -1,7 +1,9 @@
 name: release-please
 
-# Keeps a release PR open on main. Merging it tags unity-plugin-vX.Y.Z and drafts
-# the GitHub release; users install that tag through the git URL.
+# Keeps a release PR open on main. Merging it drafts the unity-plugin-vX.Y.Z
+# release; the publish job then publishes the draft, which creates the tag
+# users install through the git URL. Same flow as blender-plugin, without the
+# zip: this package ships no release files.
 
 on:
   push:
@@ -15,13 +17,136 @@ concurrency:
 
 jobs:
   release-please:
+    # Forks have neither the App credentials nor anything to release.
     if: github.repository == 'scenario-labs/unity-plugin'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
+    outputs:
+      release_created: ${{ steps.pending.outputs.found == 'true' || steps.release-please.outputs.release_created == 'true' }}
+      tag_name: ${{ steps.pending.outputs.tag_name || steps.release-please.outputs.tag_name }}
+      sha: ${{ steps.pending.outputs.sha || steps.release-please.outputs.sha }}
     steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      # The release PR, release commit and release are created with a GitHub App
+      # token, not GITHUB_TOKEN: GitHub never starts a workflow from an event
+      # created by GITHUB_TOKEN, so the release PR would never run the CI the
+      # main rulesets require, and the versioning ruleset lets only the App
+      # create release tags.
+      - name: Retrieve GitHub App token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
         with:
+          client-id: ${{ secrets.GH_ACTIONS_TOKEN_RETRIEVER_PUBLIC_REPO_CLIENT_ID }}
+          private-key: ${{ secrets.GH_ACTIONS_TOKEN_RETRIEVER_PUBLIC_REPO_PRIVATE_KEY }}
+
+      # A draft left by a failed run is published by rerunning that run, never
+      # by a newer push: its tag would otherwise point at the wrong commit.
+      - name: Find an unfinished draft before creating another release
+        id: pending
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          drafts="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq '[.[] | select(.draft == true and (.tag_name | startswith("unity-plugin-v")))]' | jq -s 'add // []')"
+          count="$(jq length <<<"$drafts")"
+          if [ "$count" -eq 0 ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$count" -gt 1 ]; then
+            echo "::error::Multiple Unity release drafts exist; resolve them before retrying"
+            exit 1
+          fi
+          tag="$(jq -r '.[0].tag_name' <<<"$drafts")"
+          sha="$(jq -r '.[0].target_commitish' <<<"$drafts" | tr 'A-F' 'a-f')"
+          if ! [[ "$tag" =~ ^unity-plugin-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+              || ! jq -e '.[0].prerelease == false' <<<"$drafts" > /dev/null; then
+            echo "::error::The pending draft must have a stable unity-plugin-vX.Y.Z tag"
+            exit 1
+          fi
+          jq -e '.[0].author.login == "gh-actions-token-retriever-public[bot]"' <<<"$drafts" > /dev/null \
+            || { echo "::error::The pending draft was not created by the release GitHub App"; exit 1; }
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo "::error::The pending draft must target a full commit SHA, not a branch"; exit 1; }
+          [ "$sha" = "$GITHUB_SHA" ] \
+            || { echo "::error::Rerun the original release workflow for $sha; newer pushes must not publish this draft"; exit 1; }
+          { echo "found=true"; echo "tag_name=$tag"; echo "sha=$sha"; } >> "$GITHUB_OUTPUT"
+
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        if: steps.pending.outputs.found != 'true'
+        id: release-please
+        with:
+          token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          skip-github-pull-request: true
+
+  # Publishing the draft creates the tag (the versioning ruleset admits the App
+  # as a bypass actor). Nothing may change after this once immutable releases
+  # are on.
+  publish:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+      RELEASE_SHA: ${{ needs.release-please.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-please.outputs.sha }}
+          persist-credentials: false
+
+      - name: Package version must equal the tag
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$RELEASE_SHA" ] || { echo "::error::Checkout does not match the release commit"; exit 1; }
+          V="$(jq -r .version Packages/com.scenario.unity/package.json)"
+          [ "unity-plugin-v$V" = "$TAG" ] || { echo "::error::package version $V does not match $TAG"; exit 1; }
+
+      - name: Retrieve GitHub App token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.GH_ACTIONS_TOKEN_RETRIEVER_PUBLIC_REPO_CLIENT_ID }}
+          private-key: ${{ secrets.GH_ACTIONS_TOKEN_RETRIEVER_PUBLIC_REPO_PRIVATE_KEY }}
+
+      - name: Publish the draft (creates the tag)
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          RELEASE="$(gh release view "$TAG" --json isDraft,targetCommitish)"
+          jq -e --arg sha "$RELEASE_SHA" '.isDraft and .targetCommitish == $sha' <<<"$RELEASE" > /dev/null
+          gh release edit "$TAG" --draft=false
+
+  # Untagged drafts are invisible to release-please's commit-boundary discovery.
+  # Generate the next PR only after publication, or when there was no draft.
+  release-pr:
+    needs: [release-please, publish]
+    if: >-
+      ${{ !cancelled() && needs.release-please.result == 'success' &&
+          (needs.publish.result == 'success' ||
+           (needs.publish.result == 'skipped' && needs.release-please.outputs.release_created != 'true')) }}
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Retrieve GitHub App token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.GH_ACTIONS_TOKEN_RETRIEVER_PUBLIC_REPO_CLIENT_ID }}
+          private-key: ${{ secrets.GH_ACTIONS_TOKEN_RETRIEVER_PUBLIC_REPO_PRIVATE_KEY }}
+
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          skip-github-release: true
