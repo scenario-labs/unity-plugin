@@ -69,7 +69,7 @@ jobs:
         if: steps.license.outputs.present == 'true'
         with:
           persist-credentials: false
-      - uses: game-ci/unity-test-runner@fa6ced25861c16ef56187828c43f76d00df43a23 # v4.3.2
+      - uses: game-ci/unity-test-runner@32e57712352b500e17974b245a6dce9e11a73213 # v4.4.0
         if: steps.license.outputs.present == 'true'
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
