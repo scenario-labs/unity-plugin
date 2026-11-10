@@ -21,7 +21,7 @@ namespace Scenario.Editor.Core
     {
         public const string DefaultEndpoint = "https://mcp.scenario.com/mcp?toolsets=full";
         public const string ProtocolVersion = "2025-03-26";
-        public const string Version = "0.2.0"; // x-release-please-version
+        public const string Version = "0.3.0"; // x-release-please-version
         const int ReadAttempts = 3;
         const double MaxRetryAfter = 30;
         const double DefaultTimeout = 60;

@@ -4,8 +4,8 @@
 <h1 align="center">Scenario for Unity</h1>
 <p align="center">
   <!-- x-release-please-start-version -->
-  <img alt="Version 0.2.0"
-    src="https://img.shields.io/static/v1?label=version&message=0.2.0&color=black">
+  <img alt="Version 0.3.0"
+    src="https://img.shields.io/static/v1?label=version&message=0.3.0&color=black">
   <!-- x-release-please-end -->
   <img alt="Unity 6.0 and later" src="https://img.shields.io/badge/Unity-6.0%2B-black?logo=unity">
   <img alt="Render pipelines" src="https://img.shields.io/badge/pipelines-Built--in%20%C2%B7%20URP%20%C2%B7%20HDRP-555">
@@ -60,7 +60,7 @@ Unity 6.0 or later. Tested on Unity 6.3 (6000.3.21f1) on macOS, with URP and wit
    ```
    https://github.com/scenario-labs/unity-plugin.git?path=/Packages/com.scenario.unity
    ```
-   Add `#unity-plugin-v0.2.0` at the end to pin a release. <!-- x-release-please-version --> The package pulls in glTFast (Unity's GLB importer) and Newtonsoft JSON.
+   Add `#unity-plugin-v0.3.0` at the end to pin a release. <!-- x-release-please-version --> The package pulls in glTFast (Unity's GLB importer) and Newtonsoft JSON.
 3. Open **Window > Scenario** (Alt+Shift+S).
 
 **Earlier plugin.** This package replaces the earlier Scenario plugin for Unity (`com.scenarioinc.scenario`, v0.11.0 and before), which is no longer maintained. Remove it in the Package Manager, then install this one. Its code stays on the [`legacy`](https://github.com/scenario-labs/unity-plugin/tree/legacy) branch and under its `v0.x` tags, so an old install pinned with `?path=/package#v0.11.0` still resolves.
