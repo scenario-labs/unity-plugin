@@ -125,6 +125,12 @@ python3 tools/build_media.py
 
 # Icons from SVG
 uv run -q --with resvg-py tools/build_icons.py
+
+# Release tarball of the package committed at HEAD (dist/com.scenario.unity-X.Y.Z.tgz), its check,
+# and the tests of every script under tools/ (Node from .nvmrc, no npm install)
+node tools/release/build-package.js
+node tools/release/check-package.js dist/com.scenario.unity-X.Y.Z.tgz X.Y.Z
+node --test "tests/tools/*.test.js"
 ```
 
 `SCENARIO_UNITY_SERVICE=1` lets the service poll and import in batch mode;
@@ -165,8 +171,12 @@ Unity license secrets are set (`UNITY_LICENSE`, `UNITY_EMAIL`,
 ## Releases
 
 release-please keeps a release PR open on `main` (`release-please-config.json`).
-Merging it drafts the GitHub release, and the workflow's publish job then
-publishes the draft, which creates the tag `unity-plugin-vX.Y.Z`. Both run with
+Merging it drafts the GitHub release; the workflow's assets job attaches the
+UPM tarball `com.scenario.unity-X.Y.Z.tgz` (built by
+`tools/release/build-package.js` from the committed package, checked by
+`tools/release/check-package.js`, with `SHA256SUMS` and a build attestation),
+then its publish job publishes the draft, which creates the tag
+`unity-plugin-vX.Y.Z`. Both run with
 the release GitHub App's token: only that App may create release tags (the
 `versioning` ruleset), and a release PR opened with `GITHUB_TOKEN` would never
 run CI. A run that fails after drafting is fixed by rerunning that same run,

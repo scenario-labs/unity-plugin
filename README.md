@@ -63,6 +63,14 @@ Unity 6.0 or later. Tested on Unity 6.3 (6000.3.21f1) on macOS, with URP and wit
    Add `#unity-plugin-v0.2.0` at the end to pin a release. <!-- x-release-please-version --> The package pulls in glTFast (Unity's GLB importer) and Newtonsoft JSON.
 3. Open **Window > Scenario** (Alt+Shift+S).
 
+**Install package from tarball** instead, with no git on your machine (releases from 0.3.0 on):
+
+1. Download `com.scenario.unity-<version>.tgz` from the [latest release](https://github.com/scenario-labs/unity-plugin/releases/latest). Its `SHA256SUMS` and a build attestation are listed beside it: `gh attestation verify com.scenario.unity-<version>.tgz -R scenario-labs/unity-plugin`.
+2. Move the file into your project's `Packages/` folder. Unity reads the package from that file for as long as the project uses it, so keep it there; inside the project it travels with it under version control.
+3. In the Package Manager, press **+**, choose **Install package from tarball** and pick the file. Or add `"com.scenario.unity": "file:com.scenario.unity-<version>.tgz"` to the `dependencies` of `Packages/manifest.json`.
+
+To update, install a newer release's tarball the same way, then delete the old file.
+
 **Earlier plugin.** This package replaces the earlier Scenario plugin for Unity (`com.scenarioinc.scenario`, v0.11.0 and before), which is no longer maintained. Remove it in the Package Manager, then install this one. Its code stays on the [`legacy`](https://github.com/scenario-labs/unity-plugin/tree/legacy) branch and under its `v0.x` tags, so an old install pinned with `?path=/package#v0.11.0` still resolves.
 
 ## Sign in
