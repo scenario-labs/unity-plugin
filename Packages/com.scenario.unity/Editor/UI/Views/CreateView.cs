@@ -414,7 +414,7 @@ namespace Scenario.Editor.UI
             {
                 var suggest = Ui.Button("Suggest", ToggleSuggest, "wand", "sc-btn-ghost", "sc-btn-sm");
                 suggest.name = "suggest";
-                suggest.tooltip = "Suggest models: Scenario ranks the best ones for your prompt";
+                suggest.tooltip = "Suggest models: Scenario's recommended models for this type";
                 suggest.Q<Label>()?.AddToClassList("sc-wide-only");
                 card.Add(suggest);
             }
@@ -504,7 +504,7 @@ namespace Scenario.Editor.UI
             _suggestError = "";
             _suggestions = null;
             BuildSuggest();
-            var result = await S.Recommend(CapabilityForSuggest(), _prompt.value, 3);
+            var result = await S.Recommend(CapabilityForSuggest(), 3);
             _suggestLoading = false;
             if (result.Ok) _suggestions = result.Value["ranked"] as JArray ?? new JArray();
             else _suggestError = result.Error.Message;
@@ -517,7 +517,7 @@ namespace Scenario.Editor.UI
             if (!_suggestOpen) return;
             var card = Ui.Card();
             card.name = "suggestions";
-            var header = Ui.Row(Ui.Text("Suggested for this prompt", "sc-bold"), Ui.Spacer(), Ui.IconButton("close", "Close", () =>
+            var header = Ui.Row(Ui.Text("Recommended by Scenario", "sc-bold"), Ui.Spacer(), Ui.IconButton("close", "Close", () =>
             {
                 _suggestOpen = false;
                 BuildSuggest();
@@ -533,7 +533,7 @@ namespace Scenario.Editor.UI
             }
             else if (_suggestions != null)
             {
-                if (_suggestions.Count == 0) card.Add(Ui.Text("No suggestion for this prompt.", "sc-dim"));
+                if (_suggestions.Count == 0) card.Add(Ui.Text("No recommendation for this type.", "sc-dim"));
                 foreach (var entry in _suggestions.OfType<JObject>().Take(3))
                 {
                     var id = Json.Str(entry, "model_id");
@@ -546,12 +546,9 @@ namespace Scenario.Editor.UI
                     text.Add(Ui.Text($"{Json.Str(entry, "rank", "")}. {Json.Str(entry, "name", Name(id))}", "sc-bold"));
                     var why = Json.Str(entry, "explanation");
                     if (why.Length > 0) text.Add(Ui.Text(why, "sc-dim", "sc-small", "sc-wrap"));
-                    var meta = string.Join(" · ", new[] { Json.Str(entry, "cost_summary"), Json.Str(entry, "speed_summary") }.Where(s => s.Length > 0));
-                    if (meta.Length > 0) text.Add(Ui.Text(meta, "sc-faint", "sc-small", "sc-wrap"));
                     row.Add(text);
-                    var inputs = entry["suggested_inputs"] as JObject;
-                    var use = Ui.Button(id == _modelId ? "In use" : "Use", () => SelectModel(id, inputs), null, "sc-btn-sm");
-                    use.SetEnabled(id != _modelId || (inputs != null && inputs.HasValues));
+                    var use = Ui.Button(id == _modelId ? "In use" : "Use", () => SelectModel(id), null, "sc-btn-sm");
+                    use.SetEnabled(id != _modelId);
                     row.Add(use);
                     card.Add(row);
                 }

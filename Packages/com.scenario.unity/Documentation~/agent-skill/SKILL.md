@@ -26,7 +26,7 @@ Costs are in Creative Units (CU).
 ## Pick a model
 
 - `models_find` with `output_type` (image, video, model3d, motion, audio, material, skybox) lists the catalog, including the team's own trained models.
-- `models_find` with `recommend_for_prompt` returns Scenario's ranked picks for a prompt, with cost and speed notes. Prefer it when the user did not name a model.
+- `models_find` with `recommended: true` returns Scenario's recommended models for the capability or output type. Prefer them when the user did not name a model.
 - `models_find` with `sort: "newest"` lists the most recently added models first, with the date each was added. Check it before settling on a model you already know: a newer one may do better.
 - `model_schema` gives the inputs: names, options, ranges, defaults, which inputs are files. Send only parameters the schema lists; unknown names are refused before pricing.
 

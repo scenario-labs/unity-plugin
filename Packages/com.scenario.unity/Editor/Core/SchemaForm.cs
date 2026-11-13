@@ -19,7 +19,7 @@ namespace Scenario.Editor.Core
         Files,
     }
 
-    /// <summary>One model input, from model_schema_get's normalised "parameters" array.</summary>
+    /// <summary>One input of a model or workflow, from the API's "inputs" array.</summary>
     public sealed class Field
     {
         public string Name;
@@ -80,8 +80,8 @@ namespace Scenario.Editor.Core
         public static List<Field> FieldsFromSchema(JObject schema, IDictionary<string, JToken[]> restrict = null)
         {
             var fields = new List<Field>();
-            // Models list "parameters"; workflow definitions list "inputs_definition".
-            var parameters = schema?["parameters"] as JArray ?? schema?["inputs"] as JArray ?? schema?["inputs_definition"] as JArray;
+            // Models and workflows both list "inputs".
+            var parameters = schema?["inputs"] as JArray;
             if (parameters == null) return fields;
             foreach (var token in parameters)
             {
@@ -104,28 +104,32 @@ namespace Scenario.Editor.Core
             return ordered;
         }
 
+        /// <summary>The API's { always: true } (or a plain boolean). { ifDefined: ... } depends on another input, so it is not required up front.</summary>
+        static bool IsRequired(JToken required) => required is JObject rule ? Json.Truthy(rule["always"]) : Json.Truthy(required);
+
+        static int MaxLengthOf(JObject p) => (int)Json.Num(p, "maxLength");
+
         static Field ToField(JObject p)
         {
             var name = (string)p["name"];
             var rawType = Json.Str(p, "type", "string");
-            var options = p["allowed_values"] is JArray values ? values.ToList()
-                : p["allowedValues"] is JArray raw ? raw.ToList() : new List<JToken>();
+            var options = p["allowedValues"] is JArray values ? values.ToList() : new List<JToken>();
             var field = new Field
             {
                 Name = name,
                 Label = Json.Str(p, "label").Length > 0 ? Json.Str(p, "label") : Humanize(name),
                 Description = Json.Str(p, "description"),
-                Required = Json.Truthy(p["required"]),
+                Required = IsRequired(p["required"]),
                 Default = p["default"]?.DeepClone(),
                 Min = p["min"] != null ? Json.ToDouble(p["min"]) : (double?)null,
                 Max = p["max"] != null ? Json.ToDouble(p["max"]) : (double?)null,
                 Step = p["step"] != null ? Json.ToDouble(p["step"]) : (double?)null,
                 Options = options,
                 Kind = Json.Str(p, "kind"),
-                MaxItems = rawType.EndsWith("array") ? (int)Json.Num(p, "max_length") : 0,
-                MaxLength = rawType == "string" ? (int)Json.Num(p, "max_length") : 0,
-                CostImpact = Json.Truthy(p["cost_impact"]) || Json.Truthy(p["costImpact"]),
-                PromptSpark = Json.Truthy(p["prompt_spark"]) || Json.Truthy(p["promptSpark"]),
+                MaxItems = rawType.EndsWith("array") ? MaxLengthOf(p) : 0,
+                MaxLength = rawType == "string" ? MaxLengthOf(p) : 0,
+                CostImpact = Json.Truthy(p["costImpact"]),
+                PromptSpark = Json.Truthy(p["promptSpark"]),
             };
             switch (rawType)
             {
@@ -199,17 +203,12 @@ namespace Scenario.Editor.Core
         /// <summary>Name of the main prompt field ("prompt", "text", "texturePrompt"...), "" when the model takes no text.</summary>
         public static string PromptName(IEnumerable<Field> fields) => fields.FirstOrDefault(f => f.Type == FieldType.Prompt)?.Name ?? "";
 
-        /// <summary>
-        /// Whether Prompt Spark can rewrite this model's prompt. model_schema_get flags it on the prompt
-        /// field and lists it in prompting.prompt_spark_fields; a top-level prompt_spark is also accepted.
-        /// </summary>
+        /// <summary>Whether Prompt Spark can rewrite this model's prompt: the API flags it on the prompt input.</summary>
         public static bool SparkAvailable(JObject schema, IList<Field> fields)
         {
             if (schema == null || fields == null) return false;
             var prompt = PromptName(fields);
-            if (prompt.Length == 0) return false;
-            if (Json.Truthy(schema["prompt_spark"]) || fields.Any(f => f.Name == prompt && f.PromptSpark)) return true;
-            return (schema["prompting"] as JObject)?["prompt_spark_fields"] is JArray listed && listed.Any(t => (string)t == prompt);
+            return prompt.Length > 0 && fields.Any(f => f.Name == prompt && f.PromptSpark);
         }
 
         /// <summary>The first file input that takes this kind of asset (image, video, audio, 3d).</summary>

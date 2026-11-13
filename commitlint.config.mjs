@@ -39,7 +39,7 @@ export default {
       "always",
       [
         "core", // Editor/Core cross-cutting: results, JSON, files, transport
-        "mcp", // McpClient.cs and Sse.cs: Scenario MCP calls, sessions, replies
+        "client", // ApiClient.cs: Scenario REST API calls, retries, uploads
         "auth", // Auth.cs, OAuth.cs, CredentialStore.cs: sign-in and secrets
         "quote", // Quote.cs: prices, fingerprints, single-use quotes
         "jobs", // JobLedger.cs: durable job list, states, reconcile

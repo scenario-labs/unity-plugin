@@ -1,0 +1,22 @@
+{
+  "job": {
+    "jobId": "job_test00000000000000000001",
+    "jobType": "custom",
+    "status": "success",
+    "progress": 1,
+    "createdAt": "2026-10-02T21:20:16.925Z",
+    "updatedAt": "2026-10-02T21:20:55.734Z",
+    "metadata": {
+      "input": {
+        "modelId": "model_openai-gpt-image-2-5-sunburst"
+      },
+      "assetIds": [
+        "asset_test00000000000000000001"
+      ]
+    },
+    "billing": {
+      "cuCost": 14,
+      "cuDiscount": 0
+    }
+  }
+}

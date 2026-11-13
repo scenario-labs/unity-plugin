@@ -27,7 +27,7 @@
       ],
       "extra-files": [
         { "type": "json", "path": "Packages/com.scenario.unity/package.json", "jsonpath": "$.version" },
-        { "type": "generic", "path": "Packages/com.scenario.unity/Editor/Core/McpClient.cs" },
+        { "type": "generic", "path": "Packages/com.scenario.unity/Editor/Core/ApiClient.cs" },
         { "type": "generic", "path": "README.md" }
       ]
     }

@@ -23,7 +23,7 @@ namespace Scenario.Editor.Tests
     /// </summary>
     public class WorkspaceTests
     {
-        FakeMcp _server;
+        FakeApi _server;
         string _settings;
         string _folder;
         ScenarioWindow _window;
@@ -33,14 +33,14 @@ namespace Scenario.Editor.Tests
         public void SetUp()
         {
             _settings = EditorJsonUtility.ToJson(ScenarioUserSettings.instance);
-            _server = new FakeMcp
+            _server = new FakeApi
             {
                 // The resumed session refreshes its access token before the first call.
                 Other = request => request.Url == OAuthApp.Production.TokenEndpoint
                     ? new HttpReply { Status = 200, Body = "{\"access_token\":\"at\",\"refresh_token\":\"rt_next\",\"expires_in\":3600}" }
                     : new HttpReply { Status = 404 },
             };
-            _server.Tools["models_list"] = (args, i) => FakeMcp.Result(new JObject { ["models"] = new JArray() });
+            _server.Routes["GET /models"] = (args, i) => FakeApi.Json(new JObject { ["models"] = new JArray() });
             _folder = TempDir.Make("workspace");
             _notices.Clear();
             // Each test is a new editor session: the check at start has not run yet, and the saved
@@ -72,10 +72,10 @@ namespace Scenario.Editor.Tests
         /// <summary>teams_list for an account: each team with its project ids.</summary>
         void Account(params (string team, string[] projects)[] teams)
         {
-            _server.Tools["teams_list"] = (args, i) => TeamsReply(teams);
+            _server.Routes["GET /teams"] = (args, i) => TeamsReply(teams);
         }
 
-        static HttpReply TeamsReply(params (string team, string[] projects)[] teams) => FakeMcp.Result(new JObject
+        static HttpReply TeamsReply(params (string team, string[] projects)[] teams) => FakeApi.Json(new JObject
         {
             ["teams"] = new JArray(teams.Select(t => new JObject
             {
@@ -182,7 +182,7 @@ namespace Scenario.Editor.Tests
         [Test]
         public void ASavedTeamListedWithoutItsProjects_KeepsTheSavedProject()
         {
-            _server.Tools["teams_list"] = (args, i) => FakeMcp.Result(new JObject
+            _server.Routes["GET /teams"] = (args, i) => FakeApi.Json(new JObject
             {
                 ["teams"] = new JArray(new JObject { ["id"] = "t1", ["name"] = "Team t1" }, new JObject
                 {
@@ -214,7 +214,7 @@ namespace Scenario.Editor.Tests
         public void AFailedRead_KeepsTheSavedProject()
         {
             // Offline at editor start: the choice stays until Scenario answers.
-            _server.Tools["teams_list"] = (args, i) => FakeMcp.Status(503);
+            _server.Routes["GET /teams"] = (args, i) => FakeApi.Status(503);
             var s = Resume("t1", "p1");
             Run.Sync(s.LoadTeams(autoPick: true));
             Assert.AreEqual("p1", s.Client.ProjectId);
@@ -241,24 +241,24 @@ namespace Scenario.Editor.Tests
             var s = Resume("t1", "p_deleted");
             var until = EditorApplication.timeSinceStartup + 10;
             while (!s.NeedsWorkspace && EditorApplication.timeSinceStartup < until) yield return null;
-            Assert.AreEqual(1, _server.Count("teams_list"), "one free read at start");
+            Assert.AreEqual(1, _server.Count("GET /teams"), "one free read at start");
             Assert.IsTrue(s.NeedsWorkspace, "the picker comes back without any action");
             Assert.AreEqual(2, s.Teams.Count, "the project menus are filled");
 
             // A script reload builds the service again in the same editor session: no second read.
             var again = Resume("t1", "p1");
             for (var i = 0; i < 10; i++) yield return null;
-            Assert.AreEqual(1, _server.Count("teams_list"), "not after every script reload");
+            Assert.AreEqual(1, _server.Count("GET /teams"), "not after every script reload");
             Assert.AreEqual("p1", again.Client.ProjectId);
         }
 
         [UnityTest]
         public IEnumerator EditorStart_Offline_KeepsTheChoice_Quietly()
         {
-            _server.Tools["teams_list"] = (args, i) => FakeMcp.Status(503);
+            _server.Routes["GET /teams"] = (args, i) => FakeApi.Status(503);
             var s = Resume("t1", "p1");
             var until = EditorApplication.timeSinceStartup + 10;
-            while (_server.Count("teams_list") == 0 && EditorApplication.timeSinceStartup < until) yield return null;
+            while (_server.Count("GET /teams") == 0 && EditorApplication.timeSinceStartup < until) yield return null;
             for (var i = 0; i < 5; i++) yield return null;
             Assert.AreEqual("p1", s.Client.ProjectId);
             Assert.IsFalse(_notices.Any(n => n.level == "error"), "a background check does not show a failure");
@@ -272,13 +272,13 @@ namespace Scenario.Editor.Tests
             SessionState.SetBool(ScenarioService.TeamsCheckedKey, true);
             // Answers later, like the network: the second caller arrives while the first read is in flight.
             var s = ScenarioService.UseForTests(new WorkerThreadTransport(_server), _folder, StoreOf(_folder));
-            var before = _server.Count("teams_list");
+            var before = _server.Count("GET /teams");
             var first = s.LoadTeams(autoPick: true);
             var second = s.LoadTeams(autoPick: true);
             Assert.AreSame(first, second);
             var until = EditorApplication.timeSinceStartup + 10;
             while (!first.IsCompleted && EditorApplication.timeSinceStartup < until) yield return null;
-            Assert.AreEqual(before + 1, _server.Count("teams_list"));
+            Assert.AreEqual(before + 1, _server.Count("GET /teams"));
         }
 
         [UnityTest]
@@ -310,13 +310,13 @@ namespace Scenario.Editor.Tests
         }
 
         /// <summary>
-        /// The first teams_list (the resumed account's) is held until the gate opens: the test signs out
+        /// The first teams read (the resumed account's) is held until the gate opens: the test signs out
         /// and in as someone else meanwhile. Later reads answer for the new account. Each reply is built
-        /// per request: the scripted server writes the request's id into it.
+        /// per request.
         /// </summary>
         void HoldFirstRead(ManualResetEventSlim entered, ManualResetEventSlim gate, Func<HttpReply> first, Func<HttpReply> later)
         {
-            _server.Tools["teams_list"] = (args, i) =>
+            _server.Routes["GET /teams"] = (args, i) =>
             {
                 if (i > 0) return later();
                 entered.Set();
@@ -391,7 +391,7 @@ namespace Scenario.Editor.Tests
             using (var gate = new ManualResetEventSlim())
             {
                 // The resumed account's read ends refused, as when its session has expired.
-                HoldFirstRead(entered, gate, () => FakeMcp.Error("Unauthorized"), () => TeamsReply(("t_b", new[] { "p_b" })));
+                HoldFirstRead(entered, gate, () => FakeApi.Error(403, "Forbidden"), () => TeamsReply(("t_b", new[] { "p_b" })));
                 var s = ScenarioService.UseForTests(new WorkerThreadTransport(_server), _folder, StoreOf(_folder));
                 s.Notified += (message, level) => _notices.Add((message, level));
                 try

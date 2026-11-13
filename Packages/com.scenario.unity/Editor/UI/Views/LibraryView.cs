@@ -211,22 +211,13 @@ namespace Scenario.Editor.UI
             Result<JObject> result;
             if (listed)
             {
-                result = await S.Client.ListAssets(new JObject { ["types"] = new JArray(AudioTypes) }, PageSize, _pageToken, includeUrls: true);
+                result = await S.Client.ListAssets(AudioTypes, PageSize, _pageToken);
             }
             else
             {
                 var kinds = Kinds.First(k => k.id == _kind).kinds;
-                var args = new JObject
-                {
-                    ["target"] = "assets",
-                    ["query"] = query,
-                    ["filter"] = "kind IN [" + string.Join(", ", kinds.Select(k => "\"" + k + "\"")) + "]",
-                    ["include_urls"] = true,
-                    ["limit"] = PageSize,
-                    ["offset"] = _offset,
-                };
-                if (query.Length == 0) args["sort_by"] = new JArray("createdAt:desc");
-                result = await S.Client.Search(args);
+                var filter = "kind IN [" + string.Join(", ", kinds.Select(k => "\"" + k + "\"")) + "]";
+                result = await S.Client.SearchAssets(query, filter, PageSize, _offset);
             }
             if (version != _version) return;
             _loading = false;

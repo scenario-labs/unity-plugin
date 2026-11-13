@@ -1,0 +1,333 @@
+{
+  "jobs": [
+    {
+      "jobId": "job_test00000000000000000002",
+      "jobType": "custom",
+      "status": "success",
+      "authorId": "c452b44467bd7f9d443c631491b6948b",
+      "billing": {
+        "cuCost": 444,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-02T21:22:13.168Z",
+      "updatedAt": "2026-10-02T21:26:19.863Z",
+      "metadata": {
+        "input": {
+          "modelId": "model_bytedance-seedance-2-5",
+          "prompt": "asset_test00000000000000000002"
+        }
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000003",
+      "jobType": "upload",
+      "status": "success",
+      "authorId": "c452b44467bd7f9d443c631491b6948b",
+      "billing": {
+        "cuCost": 0,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-02T21:21:25.091Z",
+      "updatedAt": "2026-10-02T21:21:57.734Z",
+      "metadata": {
+        "input": {}
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000001",
+      "jobType": "custom",
+      "status": "success",
+      "authorId": "c452b44467bd7f9d443c631491b6948b",
+      "billing": {
+        "cuCost": 14,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-02T21:20:16.925Z",
+      "updatedAt": "2026-10-02T21:20:55.734Z",
+      "metadata": {
+        "input": {
+          "modelId": "model_openai-gpt-image-2-5-sunburst",
+          "prompt": "asset_test00000000000000000003"
+        }
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000004",
+      "jobType": "upload",
+      "status": "success",
+      "authorId": "c452b44467bd7f9d443c631491b6948b",
+      "billing": {
+        "cuCost": 0,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-02T21:19:46.256Z",
+      "updatedAt": "2026-10-02T21:20:05.552Z",
+      "metadata": {
+        "input": {}
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000005",
+      "jobType": "custom",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 2,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T23:14:26.571Z",
+      "updatedAt": "2026-10-01T23:14:59.086Z",
+      "metadata": {
+        "input": {
+          "modelId": "model_scenario-video-concat"
+        }
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000006",
+      "jobType": "custom",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 28,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T23:12:35.238Z",
+      "updatedAt": "2026-10-01T23:14:02.303Z",
+      "metadata": {
+        "input": {
+          "modelId": "model_scenario-caption-studio"
+        }
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000007",
+      "jobType": "upload",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 0,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T23:12:29.891Z",
+      "updatedAt": "2026-10-01T23:12:31.689Z",
+      "metadata": {
+        "input": {}
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000008",
+      "jobType": "upload",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 0,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T23:12:11.794Z",
+      "updatedAt": "2026-10-01T23:12:27.810Z",
+      "metadata": {
+        "input": {}
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000009",
+      "jobType": "custom",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 30,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T23:07:53.351Z",
+      "updatedAt": "2026-10-01T23:09:39.460Z",
+      "metadata": {
+        "input": {
+          "modelId": "model_scenario-caption-studio"
+        }
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000010",
+      "jobType": "upload",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 0,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T23:07:47.616Z",
+      "updatedAt": "2026-10-01T23:07:50.943Z",
+      "metadata": {
+        "input": {}
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000011",
+      "jobType": "upload",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 0,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T23:07:27.129Z",
+      "updatedAt": "2026-10-01T23:07:45.782Z",
+      "metadata": {
+        "input": {}
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000012",
+      "jobType": "custom",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 2,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T23:00:06.860Z",
+      "updatedAt": "2026-10-01T23:00:52.932Z",
+      "metadata": {
+        "input": {
+          "modelId": "model_scenario-video-concat"
+        }
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000013",
+      "jobType": "custom",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 30,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T22:58:17.732Z",
+      "updatedAt": "2026-10-01T22:59:45.741Z",
+      "metadata": {
+        "input": {
+          "modelId": "model_scenario-caption-studio"
+        }
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000014",
+      "jobType": "upload",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 0,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T22:58:12.372Z",
+      "updatedAt": "2026-10-01T22:58:15.494Z",
+      "metadata": {
+        "input": {}
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000015",
+      "jobType": "upload",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 0,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T22:57:49.831Z",
+      "updatedAt": "2026-10-01T22:58:11.354Z",
+      "metadata": {
+        "input": {}
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000016",
+      "jobType": "custom",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 9,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T22:51:29.859Z",
+      "updatedAt": "2026-10-01T22:51:46.555Z",
+      "metadata": {
+        "input": {
+          "modelId": "model_sonilo-v1-1-video-to-sound-effects",
+          "prompt": "asset_test00000000000000000004"
+        }
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000017",
+      "jobType": "custom",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 9,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T22:51:28.221Z",
+      "updatedAt": "2026-10-01T22:51:38.920Z",
+      "metadata": {
+        "input": {
+          "modelId": "model_sonilo-v1-1-video-to-sound-effects",
+          "prompt": "asset_test00000000000000000004"
+        }
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000018",
+      "jobType": "upload",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 0,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T22:51:20.210Z",
+      "updatedAt": "2026-10-01T22:51:24.662Z",
+      "metadata": {
+        "input": {}
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000019",
+      "jobType": "custom",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 9,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T22:51:05.174Z",
+      "updatedAt": "2026-10-01T22:51:17.350Z",
+      "metadata": {
+        "input": {
+          "modelId": "model_sonilo-v1-1-video-to-sound-effects",
+          "prompt": "asset_test00000000000000000005"
+        }
+      }
+    },
+    {
+      "jobId": "job_test00000000000000000020",
+      "jobType": "custom",
+      "status": "success",
+      "authorId": "apiu_test00000000000000000001",
+      "billing": {
+        "cuCost": 9,
+        "cuDiscount": 0
+      },
+      "createdAt": "2026-10-01T22:51:01.855Z",
+      "updatedAt": "2026-10-01T22:51:14.880Z",
+      "metadata": {
+        "input": {
+          "modelId": "model_sonilo-v1-1-video-to-sound-effects",
+          "prompt": "asset_test00000000000000000005"
+        }
+      }
+    }
+  ],
+  "nextPaginationToken": "eyJjcmVhdGVkQXQiOnsiUyI6IjIwMjYtMTAtMDFUMjI6NTE6MDEuODU1WiJ9LCJqb2JJZCI6eyJTIjoiam9iX1RTOVFxV3JrTDZENjhBaGdSSkUzSHNhcCJ9LCJvd25lcklkIjp7IlMiOiJwcm9qX3ptQmQ5SlFXY205YzJiZzJNb1E0N2VvYiJ9fQ=="
+}

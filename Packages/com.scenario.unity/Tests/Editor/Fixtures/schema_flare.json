@@ -1,0 +1,91 @@
+{
+  "model": {
+    "id": "model_openai-gpt-image-2-5-flare",
+    "name": "GPT Image 2.5 Flare",
+    "capabilities": [
+      "txt2img",
+      "img2img"
+    ],
+    "inputs": [
+      {
+        "name": "prompt",
+        "type": "string",
+        "description": "Describe the image you want to create, or how to edit your reference images. Plain, natural language works well.",
+        "required": {
+          "always": true
+        },
+        "maxLength": 32000,
+        "promptSpark": true,
+        "prompt": true
+      },
+      {
+        "name": "referenceImages",
+        "type": "file_array",
+        "description": "Images to edit or build from (up to 10). Required if you provide a mask.",
+        "maxLength": 10,
+        "kind": "image",
+        "costImpact": true
+      },
+      {
+        "name": "mask",
+        "type": "file",
+        "description": "An optional PNG that marks which parts of the first reference image to change. It uses transparency: fully transparent areas are edited, fully opaque areas are kept. Export a PNG with real transparency (don't flatten it). If you've drawn a white-on-black mask, convert the white \"edit\" areas to transparent first.",
+        "kind": "image"
+      },
+      {
+        "name": "numOutputs",
+        "type": "number",
+        "description": "How many images to create from the same prompt (1-10).",
+        "default": 1,
+        "min": 1,
+        "max": 10,
+        "step": 1,
+        "costImpact": true
+      },
+      {
+        "name": "width",
+        "type": "number",
+        "description": "The output width in pixels.",
+        "min": 16,
+        "max": 3840,
+        "step": 16,
+        "costImpact": true
+      },
+      {
+        "name": "height",
+        "type": "number",
+        "description": "The output height in pixels.",
+        "min": 16,
+        "max": 3840,
+        "step": 16,
+        "costImpact": true
+      },
+      {
+        "name": "quality",
+        "type": "string",
+        "description": "How much effort goes into the image. Higher levels look better but cost more; Auto lets the model choose.",
+        "default": "auto",
+        "allowedValues": [
+          "auto",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "costImpact": true
+      },
+      {
+        "name": "background",
+        "type": "string",
+        "description": "Whether the background is solid (Opaque) or see-through (Transparent). Auto lets the model decide.",
+        "default": "auto",
+        "allowedValues": [
+          "auto",
+          "opaque",
+          "transparent"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "teams": [
+    {
+      "id": "TeamTest00000000000000",
+      "name": "Test Team",
+      "type": "shared",
+      "plan": "enterprise",
+      "projects": [
+        {
+          "id": "proj_test00000000000000000001",
+          "name": "Test Project",
+          "privacyMode": false,
+          "createdAt": "2026-09-14T11:30:20.472Z",
+          "updatedAt": "2026-09-14T11:30:20.472Z",
+          "blacklist": {
+            "models": []
+          }
+        }
+      ],
+      "createdAt": "2023-03-17T00:25:54.121Z",
+      "updatedAt": "2026-09-30T09:20:50.203Z",
+      "avatar": {
+        "assetId": "asset_test00000000000000000006",
+        "url": "https://cdn.cloud.scenario.com/REDACTED"
+      },
+      "modelsManagement": "blocklist",
+      "blacklist": {
+        "models": []
+      },
+      "allowlist": {
+        "models": []
+      },
+      "autoAllowlistTrainedModels": false,
+      "ipDetectionEnforcement": "disabled",
+      "qualityGateAutoDetect": false,
+      "context": {
+        "usersCount": 7,
+        "keysCount": 29,
+        "userRole": "key",
+        "invitationsCount": 0
+      }
+    }
+  ]
+}
