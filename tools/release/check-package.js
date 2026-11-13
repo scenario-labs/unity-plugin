@@ -45,7 +45,11 @@ function readTarball(buf) {
     if (parseInt(field(h, 148, 8).trim(), 8) !== sum) throw new Error(`entry ${entries.length + 1}: header checksum does not match`);
     const prefix = field(h, 257, 6) === "ustar" ? field(h, 345, 155) : "";
     const name = (prefix ? `${prefix}/` : "") + field(h, 0, 100);
-    const size = parseInt(field(h, 124, 12).trim() || "0", 8);
+    // Octal digits only: a sign or anything else would make a negative or
+    // NaN size, and the next header would be read from the same place.
+    const sizeField = field(h, 124, 12).trim();
+    if (!/^[0-7]+$/.test(sizeField)) throw new Error(`${name}: size field ${JSON.stringify(sizeField)} is not an octal number`);
+    const size = parseInt(sizeField, 8);
     const type = String.fromCharCode(h[156] || 0x30);
     const start = at + BLOCK;
     if (start + size > tar.length) throw new Error(`${name}: truncated`);

@@ -89,6 +89,20 @@ test("a damaged or foreign archive fails without throwing", () => {
   assert.ok(checkPackage(write([{ path: "package.json", data: Buffer.from("{}") }]), version).some((p) => p.includes("is missing (committed at HEAD)")));
 });
 
+test("a header with a negative or non-octal size fails instead of looping", () => {
+  const zlib = require("node:zlib");
+  for (const bad of ["-0000001000", "00000000008", "           "]) {
+    const tar = zlib.gunzipSync(tarball(files.slice(0, 1)));
+    tar.write(bad.padEnd(11, " ") + "\0", 124, "ascii");
+    // A valid checksum over the forged header, so only the size is wrong.
+    tar.fill(0x20, 148, 156);
+    let sum = 0;
+    for (let i = 0; i < 512; i++) sum += tar[i];
+    tar.write(sum.toString(8).padStart(6, "0") + "\0 ", 148, "ascii");
+    assert.throws(() => readTarball(zlib.gzipSync(tar)), /size field .* is not an octal number/, bad);
+  }
+});
+
 test(".meta rules follow what Unity imports", () => {
   assert.deepEqual(metaProblems(["package.json", "package.json.meta", "Documentation~/USER_GUIDE.md"]), []);
   assert.deepEqual(metaProblems(["Editor/A.cs", "Editor/A.cs.meta"]), ["Editor has no .meta"]);
