@@ -54,6 +54,14 @@ namespace Scenario.Editor.UI
             _deviceLink.style.alignSelf = Align.Center;
             _deviceLink.style.marginTop = 10;
             _deviceLink.RegisterCallback<ClickEvent>(evt => _ = S.SignInOnAnotherDevice());
+            // Reached with Tab and started with Return or Space, like a chip.
+            _deviceLink.focusable = true;
+            _deviceLink.RegisterCallback<KeyDownEvent>(e =>
+            {
+                if (e.keyCode != KeyCode.Return && e.keyCode != KeyCode.Space) return;
+                e.StopPropagation();
+                _ = S.SignInOnAnotherDevice();
+            });
             _box.Add(_deviceLink);
 
             _waiting = new VisualElement();
