@@ -262,7 +262,8 @@ namespace Scenario.Editor.Tests
             yield return Until(() => !Says("proj_gone"));
             Assert.Greater(_server.Count("GET /models/{id}"), reads, "read again once the catalog of the new project arrived");
             Assert.IsFalse(Says("proj_gone"), "the form is back");
-            Assert.IsNotNull(Q("prompt"));
+            yield return Until(() => Q("improve")?.resolvedStyle.display == DisplayStyle.Flex);
+            Assert.AreEqual(DisplayStyle.Flex, Q("improve").resolvedStyle.display, "the model's schema loaded: its prompt allows Prompt Spark");
         }
 
         [UnityTest]

@@ -201,6 +201,8 @@ namespace Scenario.Editor.UI
             if (!_initialized)
             {
                 _initialized = true;
+                // The first selection loads the model: the catalog it saw is not a change to react to.
+                _catalogStamp = S.Catalog.FetchedAt;
                 SelectType(_type, force: true);
             }
             Refresh();
