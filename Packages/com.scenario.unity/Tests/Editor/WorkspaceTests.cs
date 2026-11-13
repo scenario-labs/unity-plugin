@@ -310,16 +310,17 @@ namespace Scenario.Editor.Tests
 
         /// <summary>
         /// The first teams_list (the resumed account's) is held until the gate opens: the test signs out
-        /// and in as someone else meanwhile. Later reads answer for the new account.
+        /// and in as someone else meanwhile. Later reads answer for the new account. Each reply is built
+        /// per request: the scripted server writes the request's id into it.
         /// </summary>
-        void HoldFirstRead(ManualResetEventSlim entered, ManualResetEventSlim gate, HttpReply first, HttpReply later)
+        void HoldFirstRead(ManualResetEventSlim entered, ManualResetEventSlim gate, Func<HttpReply> first, Func<HttpReply> later)
         {
             _server.Tools["teams_list"] = (args, i) =>
             {
-                if (i > 0) return later;
+                if (i > 0) return later();
                 entered.Set();
                 gate.Wait(TimeSpan.FromSeconds(20));
-                return first;
+                return first();
             };
         }
 
@@ -330,8 +331,9 @@ namespace Scenario.Editor.Tests
             using (var entered = new ManualResetEventSlim())
             using (var gate = new ManualResetEventSlim())
             {
-                HoldFirstRead(entered, gate, TeamsReply(("t_a", new[] { "p_a" })), TeamsReply(("t_b", new[] { "p_b" })));
+                HoldFirstRead(entered, gate, () => TeamsReply(("t_a", new[] { "p_a" })), () => TeamsReply(("t_b", new[] { "p_b" })));
                 var s = ScenarioService.UseForTests(new WorkerThreadTransport(_server), _folder, StoreOf(_folder));
+                s.Notified += (message, level) => _notices.Add((message, level));
                 try
                 {
                     var first = s.LoadTeams(autoPick: true);
@@ -358,6 +360,7 @@ namespace Scenario.Editor.Tests
                     Assert.AreEqual("p_b", s.Client.ProjectId, "the previous account's project is never chosen");
                     Assert.AreEqual("t_b", s.Teams.Single().Id);
                     Assert.IsFalse(s.TeamsLoading);
+                    Assert.IsFalse(_notices.Any(n => n.level == "error"), "the new account's read succeeded");
                 }
                 finally
                 {
@@ -387,8 +390,9 @@ namespace Scenario.Editor.Tests
             using (var gate = new ManualResetEventSlim())
             {
                 // The resumed account's read ends refused, as when its session has expired.
-                HoldFirstRead(entered, gate, FakeMcp.Error("Unauthorized"), TeamsReply(("t_b", new[] { "p_b" })));
+                HoldFirstRead(entered, gate, () => FakeMcp.Error("Unauthorized"), () => TeamsReply(("t_b", new[] { "p_b" })));
                 var s = ScenarioService.UseForTests(new WorkerThreadTransport(_server), _folder, StoreOf(_folder));
+                s.Notified += (message, level) => _notices.Add((message, level));
                 try
                 {
                     var first = s.LoadTeams(autoPick: true);
@@ -412,6 +416,7 @@ namespace Scenario.Editor.Tests
                     Assert.AreEqual("", s.SignInError);
                     Assert.AreEqual("oauth", s.Credentials.Load().Method);
                     Assert.AreEqual("p_b", s.Client.ProjectId);
+                    Assert.IsFalse(_notices.Any(n => n.level == "error"), "the new account's read succeeded");
                 }
                 finally
                 {
