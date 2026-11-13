@@ -216,9 +216,9 @@ namespace Scenario.Editor.UI
                 {
                     BuildModelCard();
                     // The catalog reloads when the project changes: a model that failed to load in the
-                    // previous project (or before one was picked), or is still loading there, is read
-                    // again in this one. A new load drops the answer of the one in flight.
-                    if (_schema == null && (_schemaError.Length > 0 || _schemaLoading)) _ = LoadSchema();
+                    // previous project, is still loading there, or was skipped before a project was
+                    // picked, is read in this one. A new load drops the answer of the one in flight.
+                    if (_schema == null) _ = LoadSchema();
                 }
             }
             BuildBanners();
