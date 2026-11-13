@@ -854,16 +854,24 @@ namespace Scenario.Editor
         public async Task<Result<double>> PromptSparkPrice(string modelId)
         {
             if (_sparkPrices.TryGetValue(modelId, out var known)) return Result<double>.Success(known);
+            if (EstimateAlarm)
+                return Result<double>.Fail(ErrorKind.EstimateJob, "Price checks are paused: an earlier check returned a job. Check recent jobs, then restart Unity to resume.");
             var dry = await Client.PromptSpark(modelId, "", null, 1, dryRun: true);
-            if (!dry.Ok) return dry.Cast<double>();
-            if (ReturnedJob(dry.Value)) return Result<double>.Fail(ErrorKind.EstimateJob, "Prompt Spark returned a job on a price check.");
+            if (!dry.Ok)
+            {
+                if (dry.Error.Kind == ErrorKind.EstimateJob)
+                {
+                    EstimateAlarm = true;
+                    Notify(dry.Error.Message, "error");
+                    Emit();
+                }
+                return dry.Cast<double>();
+            }
             var cu = Json.Num(dry.Value, "creativeUnitsCost", -1);
             if (cu < 0) return Result<double>.Fail(ErrorKind.Protocol, "Scenario returned no price for Prompt Spark.");
             _sparkPrices[modelId] = cu;
             return Result<double>.Success(cu);
         }
-
-        static bool ReturnedJob(JObject value) => ApiClient.CreatedJobId(value).Length > 0;
 
         /// <summary>
         /// Paid (a few CU): a better prompt for this model. Same rules as a generation:

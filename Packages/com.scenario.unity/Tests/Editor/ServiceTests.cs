@@ -159,6 +159,21 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
+        public void PromptSparkPriceThatReturnsAJob_PausesPriceChecks()
+        {
+            SignIn();
+            _server.Routes["POST /generate/prompt"] = (args, i) => FakeApi.Json(new JObject { ["creativeUnitsCost"] = 2.75, ["job"] = new JObject { ["jobId"] = "job_oops" } }, 269);
+            var result = Run.Sync(_s.ImprovePrompt("model_a", "Model A", "a knight"));
+            Assert.AreEqual(ErrorKind.EstimateJob, result.Error.Kind);
+            Assert.IsTrue(_s.EstimateAlarm);
+            Assert.IsEmpty(_s.Ledger.Jobs, "no paid call");
+            Assert.AreEqual(ErrorKind.EstimateJob, Run.Sync(_s.Estimate("model_b", new JObject { ["prompt"] = "x" })).Error.Kind);
+            Assert.AreEqual(ErrorKind.EstimateJob, Run.Sync(_s.PromptSparkPrice("model_c")).Error.Kind);
+            Assert.AreEqual(1, _server.Count("POST /generate/prompt"), "no further price check is sent");
+            Assert.AreEqual(0, _server.Count("POST /generate/custom/{id}"));
+        }
+
+        [Test]
         public void PriceCheckThatReturnsAJob_PausesPriceChecks()
         {
             SignIn();
