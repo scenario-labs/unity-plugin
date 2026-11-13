@@ -204,14 +204,14 @@ namespace Scenario.Editor.Tests
             Assert.AreEqual("unity_dev_client", dev.Value.ClientId);
             Assert.AreEqual("https://id.example.test/oauth/userinfo", dev.Value.UserInfoEndpoint);
 
-            foreach (var wrong in new[]
-                     {
-                         Env(OAuthApp.IssuerVariable, "https://id.example.test"),
-                         Env(OAuthApp.ClientIdVariable, "unity_dev_client"),
-                         Env(OAuthApp.IssuerVariable, "http://id.example.test", OAuthApp.ClientIdVariable, "unity_dev_client"),
-                     })
+            var wrong = new[]
             {
-                var result = OAuthApp.Select(wrong);
+                Env(OAuthApp.IssuerVariable, "https://id.example.test"),
+                Env(OAuthApp.ClientIdVariable, "unity_dev_client"),
+                Env(OAuthApp.IssuerVariable, "http://id.example.test", OAuthApp.ClientIdVariable, "unity_dev_client"),
+            };
+            foreach (var result in wrong.Select(env => OAuthApp.Select(env)))
+            {
                 Assert.IsFalse(result.Ok);
                 StringAssert.Contains(OAuthApp.IssuerVariable, result.Error.Message);
                 StringAssert.Contains(OAuthApp.ClientIdVariable, result.Error.Message);

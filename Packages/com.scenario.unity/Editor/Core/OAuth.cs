@@ -212,7 +212,7 @@ namespace Scenario.Editor.Core
             while (clock() < device.ExpiresAt)
             {
                 try { await _transport.Delay(interval, cancel).ConfigureAwait(false); }
-                catch (OperationCanceledException) { }
+                catch (OperationCanceledException) { return Result<OAuthTokens>.Fail(ErrorKind.Canceled, "Sign-in canceled."); }
                 if (cancel.IsCancellationRequested) return Result<OAuthTokens>.Fail(ErrorKind.Canceled, "Sign-in canceled.");
                 var form = new Dictionary<string, string> { ["grant_type"] = DeviceGrant, ["device_code"] = device.Code, ["client_id"] = App.ClientId };
                 var reply = await _transport.SendAsync(HttpRequests.FormPost(App.TokenEndpoint, form, 30), cancel).ConfigureAwait(false);
