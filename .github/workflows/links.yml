@@ -1,0 +1,55 @@
+name: links
+
+# Checks the links in the repository's Markdown: blocking on pull requests
+# that change them, and weekly against link rot. A failed weekly run shows in
+# the Actions tab; it opens no issue. GitHub can disable schedules after 60
+# days of inactivity. As in photoshop-plugin.
+
+on:
+  pull_request:
+    paths:
+      - "**/*.md"
+      - ".lycheeignore"
+      - ".github/workflows/links.yml"
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: links-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scan:
+    name: links
+    if: github.repository == 'scenario-labs/unity-plugin'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Tracked files only, without .claude/ (agent configuration).
+      - name: Select the files to check
+        run: |
+          mkdir -p "$RUNNER_TEMP/links"
+          git ls-files '*.md' | grep -v -E '^\.claude/' > "$RUNNER_TEMP/links/inputs.txt"
+          cat "$RUNNER_TEMP/links/inputs.txt"
+      - uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          lycheeVersion: v0.24.2
+          args: >-
+            --verbose --no-progress --exclude-loopback --include-fragments
+            --files-from ${{ runner.temp }}/links/inputs.txt
+          output: ${{ runner.temp }}/links/report.md
+          fail: true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: links-report
+          path: ${{ runner.temp }}/links/report.md
+          if-no-files-found: ignore
+          retention-days: 14

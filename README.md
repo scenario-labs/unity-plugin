@@ -13,6 +13,7 @@
   <a href="https://docs.scenario.com"><img alt="API documentation" src="https://img.shields.io/badge/documentation-api-black.svg"></a>
   <a href="https://help.scenario.com"><img alt="App documentation" src="https://img.shields.io/badge/documentation-app-black.svg"></a>
   <a href="https://mcp.scenario.com/docs"><img alt="MCP documentation" src="https://img.shields.io/badge/documentation-mcp-black.svg"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/scenario-labs/unity-plugin"><img alt="OpenSSF Scorecard" src="https://api.scorecard.dev/projects/github.com/scenario-labs/unity-plugin/badge"></a>
 </p>
 
 Every [Scenario](https://scenario.com) model inside the Unity Editor: images, video, 3D models, character animation, audio, PBR materials and skyboxes. A 3D model can then be retextured, edited with a prompt, remeshed, rigged, animated or split into parts without leaving Unity. Each request shows its price before anything is spent, and each result lands in the project as a wired Unity asset: a prefab on the ground at the Scene view pivot, a sprite on the selected renderer, a material on the selected mesh, an animated character with its Animator Controller, the scene's skybox. AI agents (Claude Code, Codex, Cursor, VS Code) drive the same actions through a local MCP server in the editor.

@@ -27,6 +27,14 @@ jobs:
       tag_name: ${{ steps.pending.outputs.tag_name || steps.release-please.outputs.tag_name }}
       sha: ${{ steps.pending.outputs.sha || steps.release-please.outputs.sha }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
       # The release PR, release commit and release are created with a GitHub App
       # token, not GITHUB_TOKEN: GitHub never starts a workflow from an event
       # created by GITHUB_TOKEN, so the release PR would never run the CI the
@@ -46,33 +54,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           GH_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          drafts="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
-            --jq '[.[] | select(.draft == true and (.tag_name | startswith("unity-plugin-v")))]' | jq -s 'add // []')"
-          count="$(jq length <<<"$drafts")"
-          if [ "$count" -eq 0 ]; then
-            echo "found=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [ "$count" -gt 1 ]; then
-            echo "::error::Multiple Unity release drafts exist; resolve them before retrying"
-            exit 1
-          fi
-          tag="$(jq -r '.[0].tag_name' <<<"$drafts")"
-          sha="$(jq -r '.[0].target_commitish' <<<"$drafts" | tr 'A-F' 'a-f')"
-          if ! [[ "$tag" =~ ^unity-plugin-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
-              || ! jq -e '.[0].prerelease == false' <<<"$drafts" > /dev/null; then
-            echo "::error::The pending draft must have a stable unity-plugin-vX.Y.Z tag"
-            exit 1
-          fi
-          jq -e '.[0].author.login == "gh-actions-token-retriever-public[bot]"' <<<"$drafts" > /dev/null \
-            || { echo "::error::The pending draft was not created by the release GitHub App"; exit 1; }
-          [[ "$sha" =~ ^[0-9a-f]{40}$ ]] \
-            || { echo "::error::The pending draft must target a full commit SHA, not a branch"; exit 1; }
-          [ "$sha" = "$GITHUB_SHA" ] \
-            || { echo "::error::Rerun the original release workflow for $sha; newer pushes must not publish this draft"; exit 1; }
-          { echo "found=true"; echo "tag_name=$tag"; echo "sha=$sha"; } >> "$GITHUB_OUTPUT"
+        run: node tools/release/find-draft.js
 
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         if: steps.pending.outputs.found != 'true'
@@ -115,6 +97,20 @@ jobs:
         with:
           client-id: ${{ secrets.GH_ACTIONS_TOKEN_RETRIEVER_PUBLIC_REPO_CLIENT_ID }}
           private-key: ${{ secrets.GH_ACTIONS_TOKEN_RETRIEVER_PUBLIC_REPO_PRIVATE_KEY }}
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # release-please's notes name no authors: thank them in the draft, before
+      # it is published and posted to the public changelog. A missing thank-you
+      # must not hold back a checked release.
+      - name: Thank the release's contributors in the draft notes
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node tools/release/contributors.js
 
       - name: Publish the draft (creates the tag)
         env:
