@@ -241,6 +241,32 @@ namespace Scenario.Editor.Tests
         static readonly JObject CharacterInput = new JObject { ["name"] = "model", ["type"] = "file", ["kind"] = "3d", ["required"] = true, ["description"] = "The 3D model (GLB)" };
 
         [UnityTest]
+        public IEnumerator AModelThatFailedToLoad_LoadsAgain_InTheNextProject()
+        {
+            // Reads fail while the editor works in a project the account no longer has.
+            var moved = false;
+            _server.Routes["GET /models/{id}"] = (args, i) => moved ? FakeApi.Fixture("schema_flare.json") : FakeApi.Error(403, "Project proj_gone not found");
+            Assert.IsTrue(Run.Sync(_s.SignInWithApiKey("key_test", "secret_test")), _s.SignInError);
+            Run.Sync(_s.RefreshCatalog(true));
+            ScenarioUserSettings.instance.View = "create";
+            _window = ScenarioWindow.Open();
+            _window.position = new Rect(40, 40, 460, 780);
+            _window.Create.SelectType(OutputTypes.Image, true);
+            bool Says(string text) => _window.rootVisualElement.Query<Label>().ToList().Any(l => l.text.Contains(text));
+            yield return Until(() => Says("proj_gone"));
+            Assert.IsTrue(Says("proj_gone"), "the failure shows");
+
+            var reads = _server.Count("GET /models/{id}");
+            moved = true;
+            _s.SelectWorkspace(_s.Client.TeamId, "proj_next");
+            yield return Until(() => !Says("proj_gone"));
+            Assert.Greater(_server.Count("GET /models/{id}"), reads, "read again once the catalog of the new project arrived");
+            Assert.IsFalse(Says("proj_gone"), "the form is back");
+            yield return Until(() => Q("improve")?.resolvedStyle.display == DisplayStyle.Flex);
+            Assert.AreEqual(DisplayStyle.Flex, Q("improve").resolvedStyle.display, "the model's schema loaded: its prompt allows Prompt Spark");
+        }
+
+        [UnityTest]
         public IEnumerator ThreeDSteps_OfferTheirModels_AndMeshyMotionsByName()
         {
             _server.Routes["GET /models"] = (args, i) => FakeApi.Json(new JObject

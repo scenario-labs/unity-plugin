@@ -201,6 +201,8 @@ namespace Scenario.Editor.UI
             if (!_initialized)
             {
                 _initialized = true;
+                // The first selection loads the model: the catalog it saw is not a change to react to.
+                _catalogStamp = S.Catalog.FetchedAt;
                 SelectType(_type, force: true);
             }
             Refresh();
@@ -212,7 +214,14 @@ namespace Scenario.Editor.UI
             {
                 _catalogStamp = S.Catalog.FetchedAt;
                 if (string.IsNullOrEmpty(_modelId) || (S.Model(_modelId) == null && !S.Catalog.IsEmpty && _schema == null)) SelectType(_type, force: true);
-                else BuildModelCard();
+                else
+                {
+                    BuildModelCard();
+                    // The catalog reloads when the project changes: a model that failed to load in the
+                    // previous project, is still loading there, or was skipped before a project was
+                    // picked, is read in this one. A new load drops the answer of the one in flight.
+                    if (_schema == null) _ = LoadSchema();
+                }
             }
             BuildBanners();
             UpdateFooter();
