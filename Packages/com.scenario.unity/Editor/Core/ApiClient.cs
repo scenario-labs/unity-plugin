@@ -408,12 +408,14 @@ namespace Scenario.Editor.Core
                 parameters["projectId"] = ProjectId;
             }
             var url = BaseUrl + path + QueryString(parameters);
+            // Every attempt goes out under the account this call was built for.
+            var auth = Auth;
             var payload = body != null ? Encoding.UTF8.GetBytes(body.ToString(Formatting.None)) : null;
             var attempts = kind == Kind.Read || kind == Kind.Price ? ReadAttempts : 1;
             Result<JObject> result = null;
             for (var attempt = 0; attempt < attempts; attempt++)
             {
-                result = await SendOnce(kind, method, url, payload, timeout, cancel);
+                result = await SendOnce(kind, auth, method, url, payload, timeout, cancel);
                 if (kind == Kind.Price)
                 {
                     // A job in a price check's reply, even an error reply, means a paid run may have started.
@@ -441,15 +443,23 @@ namespace Scenario.Editor.Core
         }
 
         /// <summary>One request, resent once after an OAuth refresh when the authorizer refused it.</summary>
-        async Task<Result<JObject>> SendOnce(Kind kind, string method, string url, byte[] payload, double timeout, CancellationToken cancel)
+        async Task<Result<JObject>> SendOnce(Kind kind, IAuthProvider auth, string method, string url, byte[] payload, double timeout, CancellationToken cancel)
         {
-            var reply = await Post(method, url, payload, timeout, cancel);
-            if (reply.Answered && IsAuthorizerRefusal(reply) && await Auth.RefreshAsync())
-                reply = await Post(method, url, payload, timeout, cancel);
+            var reply = await Post(auth, method, url, payload, timeout, cancel);
+            if (reply.Answered && IsAuthorizerRefusal(reply) && ReferenceEquals(Auth, auth) && await auth.RefreshAsync())
+            {
+                // The refused attempt never reached Scenario: the resend is the one that counts, so it
+                // goes only for the same account and, if paid, only while spending is still on.
+                if (!ReferenceEquals(Auth, auth))
+                    return Result<JObject>.Fail(ErrorKind.Auth, "The Scenario account changed during the request, so it was not sent.", e => e.NotSent = true);
+                if (kind == Kind.Paid && SpendingDisabled)
+                    return Result<JObject>.Fail(ErrorKind.Local, "Spending is turned off (SCENARIO_NO_SPEND=1 or the Scenario setting), so nothing was sent.", e => e.NotSent = true);
+                reply = await Post(auth, method, url, payload, timeout, cancel);
+            }
             return Read(kind, reply);
         }
 
-        async Task<HttpReply> Post(string method, string url, byte[] payload, double timeout, CancellationToken cancel)
+        async Task<HttpReply> Post(IAuthProvider auth, string method, string url, byte[] payload, double timeout, CancellationToken cancel)
         {
             var request = new HttpRequestSpec
             {
@@ -461,7 +471,7 @@ namespace Scenario.Editor.Core
                 // The credential goes to the API only, never to a host it redirects to.
                 FollowRedirects = false,
             };
-            request.Headers["Authorization"] = await Auth.AuthorizationHeaderAsync();
+            request.Headers["Authorization"] = await auth.AuthorizationHeaderAsync();
             request.Headers["Accept"] = "application/json";
             request.Headers["User-Agent"] = UserAgent;
             return await Transport.SendAsync(request, cancel);

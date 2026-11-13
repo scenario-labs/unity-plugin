@@ -235,6 +235,29 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
+        public void TheResendStaysWithTheAccountAndTheSpendingSwitch()
+        {
+            var auth = new StubAuth { RefreshWorks = true };
+            _client.SetAuth(auth);
+            _client.SetScope("t", "p");
+            // Every first attempt is refused by the authorizer (an expired token).
+            _server.Routes[Generate] = (args, i) => FakeApi.Error(403, "Forbidden");
+            // Signed out while the token refreshed: the paid request is not resent under another account.
+            auth.OnRefresh = () => _client.SetAuth(new ApiKeyAuth("key_other", "secret"));
+            var switched = Run.Sync(_client.Submit("m", new JObject()));
+            Assert.IsTrue(switched.Error.NotSent);
+            Assert.AreEqual(1, _server.Count(Generate));
+
+            // Spending turned off while the token refreshed: not resent either.
+            var again = new StubAuth { RefreshWorks = true };
+            _client.SetAuth(again);
+            again.OnRefresh = () => _client.SpendingDisabled = true;
+            var off = Run.Sync(_client.Submit("m", new JObject()));
+            Assert.IsTrue(off.Error.NotSent);
+            Assert.AreEqual(2, _server.Count(Generate), "only the refused attempt left");
+        }
+
+        [Test]
         public void AnAuthorizerRefusalWithoutARefreshIsAnAuthError()
         {
             var auth = new StubAuth { RefreshWorks = false };
@@ -405,6 +428,7 @@ namespace Scenario.Editor.Tests
         {
             public bool RefreshWorks;
             public int Refreshes;
+            public System.Action OnRefresh;
             public AuthMethod Method => AuthMethod.OAuth;
             public bool HasCredentials => true;
             public bool NeedsScope => true;
@@ -413,6 +437,7 @@ namespace Scenario.Editor.Tests
             public Task<bool> RefreshAsync()
             {
                 Refreshes++;
+                OnRefresh?.Invoke();
                 return Task.FromResult(RefreshWorks);
             }
         }
