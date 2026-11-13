@@ -175,3 +175,8 @@ versions or `CHANGELOG.md` by hand: release-please bumps
 `Packages/com.scenario.unity/package.json`, `McpClient.Version` and the README
 (`x-release-please` markers), and writes the changelog from the squashed PR
 titles. Users pin a release with `#unity-plugin-vX.Y.Z` on the git URL.
+
+The `unity-plugin-v0.1.0` and `v0.2.0` tags sit on the history of the fork
+that #200 squashed, outside `main`, so `last-release-sha` in
+`release-please-config.json` points at that squash; drop it once a later
+release tag is on `main`.
