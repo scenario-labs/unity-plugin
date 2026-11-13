@@ -47,6 +47,7 @@ namespace Scenario.Editor.Tests
             Playable.Root = Playable.DefaultFolder;
             AssetDatabase.DeleteAsset(Folder);
             EditorJsonUtility.FromJsonOverwrite(_settings, ScenarioUserSettings.instance);
+            ScenarioUserSettings.instance.Save();
         }
 
         static JObject Call(string name, JObject arguments) => Run.Sync(AgentTools.Call(name, arguments, new AgentTools.Context()));

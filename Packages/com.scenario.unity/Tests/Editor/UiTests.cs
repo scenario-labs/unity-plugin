@@ -52,6 +52,7 @@ namespace Scenario.Editor.Tests
             if (_window != null) _window.Close();
             ScenarioService.ResetForTests();
             EditorJsonUtility.FromJsonOverwrite(_settings, ScenarioUserSettings.instance);
+            ScenarioUserSettings.instance.Save();
         }
 
         static IEnumerator Frames(int count = 4)
