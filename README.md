@@ -68,7 +68,7 @@ Unity 6.0 or later. Tested on Unity 6.3 (6000.3.21f1) on macOS, with URP and wit
 ## Sign in
 
 - **Sign in with Scenario** opens your browser. Approve, go back to Unity, pick a team and a project: generations are billed to that project. Switch it later from the header.
-- **Sign in on another device** shows a code, for a browser that cannot reach Unity on this machine (a remote desktop, a locked-down computer): open the page on any device, enter the code and approve.
+- **Sign in on another device** shows a code, for a browser that cannot reach Unity on this machine (a remote desktop, a locked-down computer): open the page on any device, enter the code and approve. Not available yet: until Scenario turns it on for Unity, sign in with the browser or an API key.
 - **Use an API key instead**: paste the key and secret from the Scenario web app (or `key:secret` in one go). The key is tied to one project.
 - **CI and batch mode**: set `SCENARIO_API_KEY` and `SCENARIO_API_SECRET`.
 
