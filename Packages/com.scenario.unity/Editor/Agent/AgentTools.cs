@@ -605,7 +605,7 @@ namespace Scenario.Editor.Agent
                     return Ok(new JObject
                     {
                         ["output_type"] = type,
-                        ["ranked"] = new JArray(OutputTypes.Get(type).QuickPicks.Select((id, i) => new JObject { ["rank"] = i + 1, ["model_id"] = id, ["name"] = S.Model(id)?.Name ?? id })),
+                        ["ranked"] = new JArray(OutputTypes.Get(type).QuickPicks.Take(limit).Select((id, i) => new JObject { ["rank"] = i + 1, ["model_id"] = id, ["name"] = S.Model(id)?.Name ?? id })),
                     });
                 var cap = capability.Length > 0 ? capability : CapabilityFor(type);
                 var result = await S.Recommend(cap, Math.Min(limit, 10));
