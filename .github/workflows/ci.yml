@@ -50,6 +50,13 @@ jobs:
             if [ ! -f "$path.meta" ]; then echo "missing $path.meta"; missing=1; fi
           done < <(git ls-files Packages/com.scenario.unity | grep -v '/Documentation~/')
           exit $missing
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # The tests of the scripts under tools/, with Node's own test runner:
+      # no npm install.
+      - name: Tools tests
+        run: node --test "tests/tools/*.test.js"
 
   # EditMode tests in Unity through GameCI. They need a Unity license: set the
   # repository secrets UNITY_LICENSE (the .ulf contents), UNITY_EMAIL and
