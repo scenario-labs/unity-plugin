@@ -160,7 +160,7 @@ namespace Scenario.Editor.UI
             _content.Add(run);
 
             _content.Add(Ui.Section("About"));
-            _content.Add(Ui.Text($"Scenario for Unity {McpClient.Version} · Unity {Application.unityVersion}", "sc-dim", "sc-small"));
+            _content.Add(Ui.Text($"Scenario for Unity {ApiClient.Version} · Unity {Application.unityVersion}", "sc-dim", "sc-small"));
             var links = Ui.Row(
                 Link("Documentation", Links.Repository + "#readme"),
                 Link("Report an issue", Links.Repository + "/issues"),
@@ -253,7 +253,7 @@ namespace Scenario.Editor.UI
                 copy.style.marginTop = 6;
                 copy.RegisterCallback<ClickEvent>(_ =>
                 {
-                    var report = new StringBuilder($"Scenario for Unity {McpClient.Version}, Unity {Application.unityVersion}, {SystemInfo.operatingSystem}\n");
+                    var report = new StringBuilder($"Scenario for Unity {ApiClient.Version}, Unity {Application.unityVersion}, {SystemInfo.operatingSystem}\n");
                     foreach (var (label, state, detail) in _checks) report.AppendLine($"[{state}] {label}: {detail}");
                     EditorGUIUtility.systemCopyBuffer = report.ToString();
                     Window.Toast("Report copied.", "info");
@@ -280,7 +280,7 @@ namespace Scenario.Editor.UI
             if (teams.Ok)
             {
                 Set(1, "Project access", "running", "");
-                var assets = await S.Client.ListAssets(new JObject(), 1, "", includeUrls: false);
+                var assets = await S.Client.ListAssets(null, 1, "");
                 Set(1, "Project access", assets.Ok ? "ok" : "fail", assets.Ok ? ScenarioUserSettings.instance.ProjectName : assets.Error.Message);
                 Set(2, "Model catalog", "running", "");
                 await S.RefreshCatalog(false);

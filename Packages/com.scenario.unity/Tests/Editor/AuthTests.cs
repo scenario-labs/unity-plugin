@@ -114,7 +114,7 @@ namespace Scenario.Editor.Tests
         [Test]
         public void AuthorizeUrlSignsInAsUnitysApplication()
         {
-            var client = new OAuthClient(new FakeMcp(), OAuthApp.Production);
+            var client = new OAuthClient(new FakeApi(), OAuthApp.Production);
             var url = new Uri(client.AuthorizeUrl("http://127.0.0.1:50123/callback", "st", "ch"));
             Assert.AreEqual("https://clerk.scenario.com/oauth/authorize", url.GetLeftPart(UriPartial.Path));
             var query = ParseQuery(url.Query);
@@ -131,7 +131,7 @@ namespace Scenario.Editor.Tests
         [Test]
         public void ExchangeAndRefreshRotateTokens()
         {
-            var server = new FakeMcp();
+            var server = new FakeApi();
             var forms = new List<string>();
             var urls = new List<string>();
             server.Other = request =>
@@ -171,7 +171,7 @@ namespace Scenario.Editor.Tests
         [Test]
         public void RevokeSendsTheTokenToTheAppsProvider()
         {
-            var server = new FakeMcp();
+            var server = new FakeApi();
             HttpRequestSpec sent = null;
             server.Other = request =>
             {
@@ -272,7 +272,7 @@ namespace Scenario.Editor.Tests
         [UnityTest]
         public IEnumerator OpensTheBrowserFromTheMainThread_AndCancelBringsThePanelBack()
         {
-            var server = new FakeMcp { Other = request => new HttpReply { Status = 500 } };
+            var server = new FakeApi { Other = request => new HttpReply { Status = 500 } };
             var s = ScenarioService.UseForTests(new WorkerThreadTransport(server), TempDir.Make("signin"));
             string opened = null;
             var onMainThread = false;
@@ -321,7 +321,7 @@ namespace Scenario.Editor.Tests
         {
             var folder = TempDir.Make("saved-app");
             var store = StoreWithSession(folder, OAuthApp.ProductionClientId);
-            var s = ScenarioService.UseForTests(new FakeMcp(), folder, store);
+            var s = ScenarioService.UseForTests(new FakeApi(), folder, store);
             Assert.AreEqual(SignInState.SignedIn, s.State);
             Assert.AreEqual(AuthMethod.OAuth, s.Method);
             Assert.AreEqual("me@x.com", s.AccountLabel);
@@ -334,7 +334,7 @@ namespace Scenario.Editor.Tests
             var folder = TempDir.Make("saved-other");
             // A client this install registered through the hosted MCP before Unity had its own application.
             var store = StoreWithSession(folder, "registered_per_install");
-            var server = new FakeMcp();
+            var server = new FakeApi();
             var s = ScenarioService.UseForTests(server, folder, store);
             Assert.AreEqual(SignInState.SignedOut, s.State);
             Assert.IsFalse(s.Client.HasCredentials);
@@ -352,7 +352,7 @@ namespace Scenario.Editor.Tests
         {
             var folder = TempDir.Make("saved-issuer");
             var store = StoreWithSession(folder, OAuthApp.ProductionClientId, issuer);
-            var server = new FakeMcp();
+            var server = new FakeApi();
             var s = ScenarioService.UseForTests(server, folder, store);
             Assert.AreEqual(SignInState.SignedOut, s.State);
             Assert.IsFalse(s.Client.HasCredentials);
@@ -391,7 +391,7 @@ namespace Scenario.Editor.Tests
         [Test]
         public void StartAsksTheAppsProviderForACode()
         {
-            var server = new FakeMcp();
+            var server = new FakeApi();
             HttpRequestSpec sent = null;
             server.Other = request =>
             {
@@ -414,7 +414,7 @@ namespace Scenario.Editor.Tests
         [Test]
         public void StartRefusesAPageThatIsNotHttps()
         {
-            var server = new FakeMcp { Other = _ => new HttpReply { Status = 200, Body = DeviceReply.Replace("\"verification_uri\":\"https://", "\"verification_uri\":\"http://") } };
+            var server = new FakeApi { Other = _ => new HttpReply { Status = 200, Body = DeviceReply.Replace("\"verification_uri\":\"https://", "\"verification_uri\":\"http://") } };
             var result = Run.Sync(new OAuthClient(server, DevApp).StartDevice(0));
             Assert.IsFalse(result.Ok);
             StringAssert.Contains("HTTPS", result.Error.Message);
@@ -424,7 +424,7 @@ namespace Scenario.Editor.Tests
         public void StartSaysWhenTheAppMayNotUseTheDeviceGrant()
         {
             // What the provider answers while the grant is off for the application (checked 2026-11-09).
-            var server = new FakeMcp
+            var server = new FakeApi
             {
                 Other = _ => new HttpReply
                 {
@@ -442,7 +442,7 @@ namespace Scenario.Editor.Tests
         public void StartShowsOtherProviderErrorsAsTheyAre()
         {
             // A mistyped SCENARIO_OAUTH_CLIENT_ID is not "not available yet".
-            var server = new FakeMcp { Other = _ => new HttpReply { Status = 401, Body = "{\"error\":\"invalid_client\",\"error_description\":\"Client not found\"}" } };
+            var server = new FakeApi { Other = _ => new HttpReply { Status = 401, Body = "{\"error\":\"invalid_client\",\"error_description\":\"Client not found\"}" } };
             var result = Run.Sync(new OAuthClient(server, DevApp).StartDevice(0));
             Assert.IsFalse(result.Ok);
             StringAssert.Contains("Client not found", result.Error.Message);
@@ -452,8 +452,8 @@ namespace Scenario.Editor.Tests
         [Test]
         public void PollTreatsARateLimitLikeSlowDown()
         {
-            var replies = new Queue<HttpReply>(new[] { FakeMcp.Status(429), new HttpReply { Status = 200, Body = TokensReply } });
-            var server = new FakeMcp { Other = _ => replies.Dequeue() };
+            var replies = new Queue<HttpReply>(new[] { FakeApi.Status(429), new HttpReply { Status = 200, Body = TokensReply } });
+            var server = new FakeApi { Other = _ => replies.Dequeue() };
             var tokens = Run.Sync(new OAuthClient(server, DevApp).PollDevice(Code(), () => 0));
             Assert.AreEqual("at1", tokens.Value.AccessToken);
             CollectionAssert.AreEqual(new[] { 5.0, 10.0 }, server.Delays);
@@ -464,7 +464,7 @@ namespace Scenario.Editor.Tests
         {
             var forms = new List<string>();
             var replies = new Queue<HttpReply>(new[] { OAuthError("authorization_pending"), OAuthError("slow_down"), new HttpReply { Status = 200, Body = TokensReply } });
-            var server = new FakeMcp();
+            var server = new FakeApi();
             server.Other = request =>
             {
                 forms.Add(Uri.UnescapeDataString(Encoding.UTF8.GetString(request.Body)));
@@ -482,7 +482,7 @@ namespace Scenario.Editor.Tests
         [Test]
         public void PollStopsWhenDeclinedOrExpired()
         {
-            var server = new FakeMcp { Other = _ => OAuthError("access_denied") };
+            var server = new FakeApi { Other = _ => OAuthError("access_denied") };
             var client = new OAuthClient(server, DevApp);
             var declined = Run.Sync(client.PollDevice(Code(), () => 0));
             Assert.AreEqual(ErrorKind.Auth, declined.Error.Kind);
@@ -500,8 +500,8 @@ namespace Scenario.Editor.Tests
         [Test]
         public void PollKeepsWaitingThroughANetworkOrServerFailure()
         {
-            var replies = new Queue<HttpReply>(new[] { FakeMcp.Fail("transport"), FakeMcp.Status(503), new HttpReply { Status = 200, Body = TokensReply } });
-            var server = new FakeMcp { Other = _ => replies.Dequeue() };
+            var replies = new Queue<HttpReply>(new[] { FakeApi.Fail("transport"), FakeApi.Status(503), new HttpReply { Status = 200, Body = TokensReply } });
+            var server = new FakeApi { Other = _ => replies.Dequeue() };
             Assert.AreEqual("at1", Run.Sync(new OAuthClient(server, DevApp).PollDevice(Code(), () => 0)).Value.AccessToken);
         }
 
@@ -510,7 +510,7 @@ namespace Scenario.Editor.Tests
         {
             using (var cancel = new CancellationTokenSource())
             {
-                var server = new FakeMcp
+                var server = new FakeApi
                 {
                     Other = _ =>
                     {
@@ -524,11 +524,11 @@ namespace Scenario.Editor.Tests
         }
 
         /// <summary>The production provider as the service meets it: a code, some polls before approval, then who signed in.</summary>
-        static FakeMcp Provider(int pendingPolls)
+        static FakeApi Provider(int pendingPolls)
         {
             var polls = 0;
-            var server = new FakeMcp();
-            server.Tools["teams_list"] = (args, i) => FakeMcp.Fixture("teams.sse.txt");
+            var server = new FakeApi();
+            server.Routes["GET /teams"] = (args, i) => FakeApi.Fixture("teams.json");
             server.Other = request =>
             {
                 if (request.Url == OAuthApp.Production.DeviceAuthorizationEndpoint) return new HttpReply { Status = 200, Body = DeviceReply };

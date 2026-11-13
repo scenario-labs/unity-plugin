@@ -210,7 +210,7 @@ Example, tested with Claude Code: *"Check that you are signed in, find a sword a
 
 **Ask from inside Unity.** Type a request in the **Ask** field of the Scene view panel or the Agent view ("make the bridge rustier", "add 20 pines around the temple"). The plugin runs your Claude Code against the bridge with the selection, and shows each tool call, the answer and any approval it waits for; **Stop** ends it. The command palette has **Ask Claude** too. It needs Claude Code installed and signed in; everything else works without it.
 
-The hosted [Scenario MCP](https://mcp.scenario.com/docs) covers the platform without Unity (collections, training, usage). Connect both when needed.
+The hosted [Scenario MCP](https://mcp.scenario.com/docs) is a separate server that covers the platform without Unity (collections, training, usage); the plugin does not need it, and its tool names differ from these. Connect both when needed.
 
 </td>
   </tr>
@@ -274,7 +274,7 @@ The window tests need a graphics device and are skipped under `-nographics`. Liv
 - `ScenarioDev.E2E.OAuth` checks the browser sign-in (a person signs in); `ScenarioDev.E2E.Device` and `ScenarioDev.E2E.Browser` sign in through the window, then `ScenarioDev.E2E.Resume` in a new editor checks the session comes back, refreshes and signs out; `ScenarioDev.E2E.Agent` with `tools/e2e_agent.py` has Claude Code drive the editor through the agent bridge.
 - `ScenarioDev.Media.Run` renders the turntables and animations above, and `tools/build_media.py` turns them into the GIFs.
 
-To sign in against a development instance, set `SCENARIO_OAUTH_ISSUER` (HTTPS) and `SCENARIO_OAUTH_CLIENT_ID` together, with `SCENARIO_MCP_URL` naming that instance's MCP. Without them, the editor signs in as the production Unity application.
+To sign in against a development instance, set `SCENARIO_OAUTH_ISSUER` (HTTPS) and `SCENARIO_OAUTH_CLIENT_ID` together, with `SCENARIO_API_URL` naming that instance's API. Without them, the editor signs in as the production Unity application.
 
 ## License
 

@@ -18,7 +18,7 @@ namespace Scenario.Editor.Tests
     /// </summary>
     public class UiTests
     {
-        FakeMcp _server;
+        FakeApi _server;
         ScenarioService _s;
         ScenarioWindow _window;
         string _settings;
@@ -33,19 +33,19 @@ namespace Scenario.Editor.Tests
             // the tests start from a new window on Create.
             foreach (var open in Resources.FindObjectsOfTypeAll<ScenarioWindow>()) open.Close();
             ScenarioUserSettings.instance.View = "create";
-            _server = new FakeMcp();
-            _server.Tools["teams_list"] = (args, i) => FakeMcp.Fixture("teams.sse.txt");
-            _server.Tools["models_list"] = (args, i) => FakeMcp.Fixture("models_page.sse.txt");
-            _server.Tools["model_schema_get"] = (args, i) => FakeMcp.Fixture("schema_flare.sse.txt");
-            _server.Tools["model_run"] = (args, i) => FakeMcp.Fixture("estimate.sse.txt");
-            _server.Tools["recommend"] = (args, i) => FakeMcp.Fixture("recommend_3d.sse.txt");
-            _server.Tools["workflows_list"] = (args, i) => FakeMcp.Fixture("workflows.sse.txt");
-            _server.Tools["search"] = (args, i) => FakeMcp.Result(new JObject { ["assets"] = new JArray(), ["estimatedTotalHits"] = 0, ["offset"] = 0 });
-            _server.Tools["assets_list"] = (args, i) => FakeMcp.Result(new JObject
+            _server = new FakeApi();
+            _server.Routes["GET /teams"] = (args, i) => FakeApi.Fixture("teams.json");
+            _server.Routes["GET /models"] = (args, i) => FakeApi.Fixture("models_page.json");
+            _server.Routes["GET /models/{id}"] = (args, i) => FakeApi.Fixture("schema_flare.json");
+            _server.Routes["POST /generate/custom/{id}"] = (args, i) => FakeApi.Fixture("estimate.json");
+            _server.Routes["GET /recommendations/models"] = (args, i) => FakeApi.Fixture("recommendations_3d.json");
+            _server.Routes["GET /workflows"] = (args, i) => FakeApi.Fixture("workflows.json");
+            _server.Routes["POST /search/assets"] = (args, i) => FakeApi.Json(new JObject { ["hits"] = new JArray(), ["estimatedTotalHits"] = 0, ["offset"] = 0 });
+            _server.Routes["GET /assets"] = (args, i) => FakeApi.Json(new JObject
             {
                 ["assets"] = new JArray(new JObject { ["id"] = "asset_audio0001", ["kind"] = "audio", ["prompt"] = "Sword swing whoosh", ["mimeType"] = "audio/wav" }),
             });
-            _server.Tools["jobs_list"] = (args, i) => FakeMcp.Fixture("jobs.sse.txt");
+            _server.Routes["GET /jobs"] = (args, i) => FakeApi.Fixture("jobs.json");
             _s = ScenarioService.UseForTests(_server, TempDir.Make("ui"));
         }
 
@@ -75,15 +75,15 @@ namespace Scenario.Editor.Tests
 
         JToken LastPriceParameter(string name)
         {
-            var call = _server.ToolCalls.LastIndexOf("model_run");
-            return call < 0 ? null : _server.ToolArguments[call]["parameters"]?[name];
+            var call = _server.Calls.LastIndexOf("POST /generate/custom/{id}");
+            return call < 0 ? null : _server.Arguments[call][name];
         }
 
         void NoPaidCall()
         {
-            for (var i = 0; i < _server.ToolCalls.Count; i++)
-                if (_server.ToolCalls[i] == "model_run" || _server.ToolCalls[i] == "workflow_run" || _server.ToolCalls[i] == "prompt_spark")
-                    Assert.AreEqual(true, (bool?)_server.ToolArguments[i]["dry_run"], $"{_server.ToolCalls[i]} without dry_run");
+            for (var i = 0; i < _server.Calls.Count; i++)
+                if (_server.Calls[i] == "POST /generate/custom/{id}" || _server.Calls[i] == "PUT /workflows/{id}/run" || _server.Calls[i] == "POST /generate/prompt")
+                    Assert.AreEqual(true, (bool?)_server.Arguments[i]["dryRun"], $"{_server.Calls[i]} without dry_run");
         }
 
         [Test]
@@ -124,7 +124,7 @@ namespace Scenario.Editor.Tests
             }
             yield return Frames();
             Assert.IsTrue(_window.rootVisualElement.Query<TextField>().ToList().Count >= 2, "key and secret fields");
-            Assert.AreEqual(0, _server.ToolCalls.Count, "nothing is sent before sign-in");
+            Assert.AreEqual(0, _server.Calls.Count, "nothing is sent before sign-in");
         }
 
         [UnityTest]
@@ -160,7 +160,7 @@ namespace Scenario.Editor.Tests
             Assert.AreEqual(DisplayStyle.Flex, Q("signin-browser").style.display.value, "Cancel brings the sign-in buttons back");
             Assert.AreEqual(DisplayStyle.Flex, Q("signin-device").style.display.value);
             Assert.AreEqual(DisplayStyle.None, Q("device-code-box").style.display.value);
-            Assert.AreEqual(0, _server.ToolCalls.Count, "nothing is sent to Scenario before sign-in");
+            Assert.AreEqual(0, _server.Calls.Count, "nothing is sent to Scenario before sign-in");
         }
 
         T Q<T>(string name) where T : VisualElement => _window.rootVisualElement.Q<T>(name);
@@ -197,9 +197,9 @@ namespace Scenario.Editor.Tests
             _window.Show("library");
             ((LibraryView)_window.ViewForTests("library")).SelectKind("audio");
             yield return Frames(6);
-            var listCall = _server.ToolCalls.LastIndexOf("assets_list");
-            Assert.GreaterOrEqual(listCall, 0, "assets_list was called");
-            CollectionAssert.Contains(_server.ToolArguments[listCall]["filters"]["types"].Select(t => (string)t), "txt2audio");
+            var listCall = _server.Calls.LastIndexOf("GET /assets");
+            Assert.GreaterOrEqual(listCall, 0, "the assets were listed");
+            CollectionAssert.Contains(((string)_server.Arguments[listCall]["types"]).Split(','), "txt2audio");
             Assert.IsNotNull(Q("asset-asset_audio0001"), "the audio asset shows");
             _window.Show("create");
             yield return Frames(2);
@@ -236,42 +236,44 @@ namespace Scenario.Editor.Tests
             ["id"] = id, ["name"] = name, ["capabilities"] = new JArray(caps), ["privacy"] = "public", ["status"] = "trained", ["type"] = "custom",
         };
 
-        static JObject Schema(string id, params JObject[] parameters) => new JObject { ["model_id"] = id, ["name"] = id, ["parameters"] = new JArray(parameters) };
+        static JObject Schema(string id, params JObject[] inputs) => new JObject { ["model"] = new JObject { ["id"] = id, ["name"] = id, ["inputs"] = new JArray(inputs) } };
 
         static readonly JObject CharacterInput = new JObject { ["name"] = "model", ["type"] = "file", ["kind"] = "3d", ["required"] = true, ["description"] = "The 3D model (GLB)" };
 
         [UnityTest]
         public IEnumerator ThreeDSteps_OfferTheirModels_AndMeshyMotionsByName()
         {
-            _server.Tools["models_list"] = (args, i) => FakeMcp.Result(new JObject
+            _server.Routes["GET /models"] = (args, i) => FakeApi.Json(new JObject
             {
                 ["models"] = new JArray(
                     Model("model_meshy-rigging", "Meshy Rigging", "3d23d"), Model("model_uthana-character-rigging", "Uthana Character Rigging", "3d23d"),
                     Model("model_cartwheel-character-rigging", "Cartwheel Character Rigging", "3d23d"), Model("model_tripo-rigging-v1", "Tripo Rigging 1.0 [Biped]", "3d23d"),
                     Model("model_meshy-animation", "Meshy Animation", "3d23d"), Model("model_tencent-texture-edit", "Tencent Texture Edit", "3d23d")),
             });
-            _server.Tools["model_schema_get"] = (args, i) =>
+            _server.Routes["GET /models/{id}"] = (args, i) =>
             {
-                var id = (string)args["model_id"];
+                var id = (string)args["id"];
                 if (id == "model_meshy-animation")
-                    return FakeMcp.Result(Schema(id, CharacterInput, new JObject
+                    return FakeApi.Json(Schema(id, CharacterInput, new JObject
                     {
                         ["name"] = "actionId", ["type"] = "number", ["required"] = true, ["default"] = 0, ["min"] = 0, ["step"] = 1,
                         ["description"] = "The animation to apply, given as its ID number from Meshy's animation library.",
                     }));
                 if (id == "model_tencent-texture-edit")
-                    return FakeMcp.Result(Schema(id, new JObject { ["name"] = "file3d", ["type"] = "file", ["kind"] = "3d", ["required"] = true, ["description"] = "Source 3D model file. Supported format: FBX." },
+                    return FakeApi.Json(Schema(id, new JObject { ["name"] = "file3d", ["type"] = "file", ["kind"] = "3d", ["required"] = true, ["description"] = "Source 3D model file. Supported format: FBX." },
                         new JObject { ["name"] = "prompt", ["type"] = "string", ["prompt"] = true }));
-                return FakeMcp.Result(Schema(id, CharacterInput));
+                return FakeApi.Json(Schema(id, CharacterInput));
             };
             var converted = 0;
-            _server.Tools["asset_download"] = (args, i) =>
+            _server.Routes["POST /assets/{id}/download"] = (args, i) =>
             {
-                if ((string)args["format"] == "fbx") converted++;
-                return FakeMcp.Result(new JObject { ["url"] = "https://cdn.cloud.scenario.com/assets/" + (string)args["asset_id"] });
+                if ((string)args["targetFormat"] == "fbx") converted++;
+                return FakeApi.Json(new JObject { ["url"] = "https://cdn.cloud.scenario.com/assets/" + (string)args["id"] });
             };
             _server.DownloadContent = url => System.Text.Encoding.ASCII.GetBytes("Kaydara FBX Binary  \0test");
-            _server.Tools["upload_asset"] = (args, i) => FakeMcp.Result(new JObject { ["asset_id"] = "asset_fbxcopy01", ["parts"] = new JArray() });
+            _server.Routes["POST /uploads"] = (args, i) => FakeApi.Json(new JObject { ["upload"] = new JObject { ["id"] = "upload_fbx", ["parts"] = new JArray() } });
+            _server.Routes["POST /uploads/{id}/action"] = (args, i) => FakeApi.Json(new JObject { ["upload"] = new JObject { ["status"] = "complete" } });
+            _server.Routes["GET /uploads/{id}"] = (args, i) => FakeApi.Json(new JObject { ["upload"] = new JObject { ["status"] = "imported", ["entityId"] = "asset_fbxcopy01" } });
             Assert.IsTrue(Run.Sync(_s.SignInWithApiKey("key_test", "secret_test")), _s.SignInError);
             Run.Sync(_s.RefreshCatalog(true));
             _window = ScenarioWindow.Open();

@@ -49,13 +49,15 @@ namespace ScenarioDev
                 {
                     // Scenario's search index has no audio: list audio assets by type.
                     var found = kind == "audio"
-                        ? await S.Client.ListAssets(new JObject { ["types"] = new JArray("txt2audio", "audio2audio", "video2audio", "uploaded-audio") }, 1, "", includeUrls: false)
-                        : await S.Client.Search(new JObject
-                        {
-                            ["target"] = "assets", ["query"] = "", ["filter"] = $"kind IN [\"{kind}\"]",
-                            ["sort_by"] = new JArray("createdAt:desc"), ["limit"] = 1,
-                        });
-                    var id = found.Ok ? (string)(found.Value["assets"] as JArray)?.FirstOrDefault()?["id"] : null;
+                        ? await S.Client.ListAssets(new[] { "txt2audio", "audio2audio", "video2audio", "uploaded-audio" }, 1, "")
+                        : await S.Client.SearchAssets("", $"kind IN [\"{kind}\"]", 1, 0);
+                    if (!found.Ok)
+                    {
+                        Fail($"source {kind}", found.Error.Message);
+                        continue;
+                    }
+                    var list = found.Value["assets"] as JArray ?? found.Value["hits"] as JArray;
+                    var id = (string)list?.FirstOrDefault()?["id"];
                     if (id != null) sources[kind] = id;
                     Log($"source {kind}: {id ?? "none in the project"}");
                 }
@@ -88,7 +90,7 @@ namespace ScenarioDev
 
                 foreach (var capability in new[] { "txt2img", "img2img", "txt2video", "img2video", "txt23d", "img23d", "txt2audio" })
                 {
-                    var picks = await S.Recommend(capability, "A stylized wooden treasure chest, game prop");
+                    var picks = await S.Recommend(capability);
                     if (!picks.Ok)
                     {
                         Fail($"recommend {capability}", picks.Error.Message);

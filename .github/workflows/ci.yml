@@ -37,7 +37,7 @@ jobs:
           import json, re
           pkg = json.load(open("Packages/com.scenario.unity/package.json"))
           manifest = json.load(open(".release-please-manifest.json"))
-          client = open("Packages/com.scenario.unity/Editor/Core/McpClient.cs").read()
+          client = open("Packages/com.scenario.unity/Editor/Core/ApiClient.cs").read()
           version = re.search(r'const string Version = "([^"]+)"', client).group(1)
           assert pkg["version"] == manifest["."] == version, (pkg["version"], manifest["."], version)
           print("version", version)

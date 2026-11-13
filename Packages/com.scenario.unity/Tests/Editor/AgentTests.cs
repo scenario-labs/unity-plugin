@@ -24,7 +24,7 @@ namespace Scenario.Editor.Tests
     public class AgentTests
     {
         const string TestToken = "sut_test_token_0123456789";
-        FakeMcp _server;
+        FakeApi _server;
         ScenarioService _s;
         string _settings;
         string _envToken;
@@ -34,9 +34,9 @@ namespace Scenario.Editor.Tests
         public void SetUp()
         {
             _settings = EditorJsonUtility.ToJson(ScenarioUserSettings.instance);
-            _server = new FakeMcp();
-            _server.Tools["teams_list"] = (args, i) => FakeMcp.Fixture("teams.sse.txt");
-            _server.Tools["models_list"] = (args, i) => FakeMcp.Result(new JObject { ["models"] = new JArray() });
+            _server = new FakeApi();
+            _server.Routes["GET /teams"] = (args, i) => FakeApi.Fixture("teams.json");
+            _server.Routes["GET /models"] = (args, i) => FakeApi.Json(new JObject { ["models"] = new JArray() });
             _s = ScenarioService.UseForTests(_server, TempDir.Make("agent"));
             _wasRunning = AgentServer.Running;
             _envToken = Environment.GetEnvironmentVariable("SCENARIO_UNITY_AGENT_TOKEN");
@@ -154,8 +154,8 @@ namespace Scenario.Editor.Tests
         public void Generate_AboveMaxCu_IsPricedButNotSent()
         {
             Assert.IsTrue(Run.Sync(_s.SignInWithApiKey("key_test", "secret_test")), _s.SignInError);
-            _server.Tools["model_schema_get"] = (args, i) => FakeMcp.Fixture("schema_flare.sse.txt");
-            _server.Tools["model_run"] = (args, i) => FakeMcp.Fixture("estimate.sse.txt");
+            _server.Routes["GET /models/{id}"] = (args, i) => FakeApi.Fixture("schema_flare.json");
+            _server.Routes["POST /generate/custom/{id}"] = (args, i) => FakeApi.Fixture("estimate.json");
             var result = CallTool("generate", new JObject
             {
                 ["model_id"] = "model_openai-gpt-image-2-5-flare",
@@ -165,8 +165,8 @@ namespace Scenario.Editor.Tests
             Assert.AreEqual(true, (bool)result["isError"], TextOf(result));
             StringAssert.Contains("above max_cu", TextOf(result));
             StringAssert.Contains("Nothing was sent", TextOf(result));
-            Assert.AreEqual(1, _server.Count("model_run"), "only the free price check");
-            Assert.AreEqual(true, (bool)_server.ToolArguments[_server.ToolCalls.IndexOf("model_run")]["dry_run"]);
+            Assert.AreEqual(1, _server.Count("POST /generate/custom/{id}"), "only the free price check");
+            Assert.AreEqual(true, (bool)_server.Arguments[_server.Calls.IndexOf("POST /generate/custom/{id}")]["dryRun"]);
             Assert.AreEqual(0, _s.Ledger.Jobs.Count);
         }
 
@@ -190,7 +190,7 @@ namespace Scenario.Editor.Tests
         public void Generate_UnknownParameter_IsRefusedBeforePricing()
         {
             Assert.IsTrue(Run.Sync(_s.SignInWithApiKey("key_test", "secret_test")), _s.SignInError);
-            _server.Tools["model_schema_get"] = (args, i) => FakeMcp.Fixture("schema_flare.sse.txt");
+            _server.Routes["GET /models/{id}"] = (args, i) => FakeApi.Fixture("schema_flare.json");
             var result = CallTool("generate", new JObject
             {
                 ["model_id"] = "model_openai-gpt-image-2-5-flare",
@@ -198,18 +198,18 @@ namespace Scenario.Editor.Tests
             });
             Assert.AreEqual(true, (bool)result["isError"]);
             StringAssert.Contains("Unknown parameters: colour_mode", TextOf(result));
-            Assert.AreEqual(0, _server.Count("model_run"));
+            Assert.AreEqual(0, _server.Count("POST /generate/custom/{id}"));
         }
 
         [UnityTest]
         public IEnumerator Generate_SlowJob_AnswersWithinTheCall_AndPointsToJobs()
         {
             Assert.IsTrue(Run.Sync(_s.SignInWithApiKey("key_test", "secret_test")), _s.SignInError);
-            _server.Tools["model_schema_get"] = (args, i) => FakeMcp.Fixture("schema_flare.sse.txt");
-            _server.Tools["model_run"] = (args, i) => Json.Truthy(args["dry_run"])
-                ? FakeMcp.Fixture("estimate.sse.txt")
-                : FakeMcp.Result(new JObject { ["job_id"] = "job_slow", ["status"] = "in-progress" });
-            _server.Tools["job_get"] = (args, i) => FakeMcp.Result(new JObject { ["job"] = new JObject { ["jobId"] = "job_slow", ["status"] = "in-progress", ["progress"] = 0.3 } });
+            _server.Routes["GET /models/{id}"] = (args, i) => FakeApi.Fixture("schema_flare.json");
+            _server.Routes["POST /generate/custom/{id}"] = (args, i) => Json.Truthy(args["dryRun"])
+                ? FakeApi.Fixture("estimate.json")
+                : FakeApi.Json(new JObject { ["job_id"] = "job_slow", ["status"] = "in-progress" });
+            _server.Routes["GET /jobs/{id}"] = (args, i) => FakeApi.Json(new JObject { ["job"] = new JObject { ["jobId"] = "job_slow", ["status"] = "in-progress", ["progress"] = 0.3 } });
             var budget = AgentTools.CallSeconds;
             AgentTools.CallSeconds = 2;
             try
@@ -227,7 +227,7 @@ namespace Scenario.Editor.Tests
                 var next = (string)JObject.Parse(TextOf(result))["next"];
                 StringAssert.Contains("Call jobs with local_id", next);
                 StringAssert.Contains("Do not generate it again", next);
-                Assert.AreEqual(1, _server.ToolArguments.Where((a, k) => _server.ToolCalls[k] == "model_run").Count(a => !Json.Truthy(a["dry_run"])), "sent once");
+                Assert.AreEqual(1, _server.Arguments.Where((a, k) => _server.Calls[k] == "POST /generate/custom/{id}").Count(a => !Json.Truthy(a["dryRun"])), "sent once");
             }
             finally
             {

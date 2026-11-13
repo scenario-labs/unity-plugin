@@ -62,9 +62,9 @@ namespace ScenarioDev
                     return;
                 }
                 var session = result.Value;
-                var client = new McpClient(transport, new OAuthAuth(oauth, session.Tokens, session.Email));
-                var endpoint = McpClient.EndpointFrom(Environment.GetEnvironmentVariable);
-                if (endpoint.Ok) client.Endpoint = endpoint.Value;
+                var client = new ApiClient(transport, new OAuthAuth(oauth, session.Tokens, session.Email));
+                var baseUrl = ApiClient.BaseUrlFrom(Environment.GetEnvironmentVariable);
+                if (baseUrl.Ok) client.BaseUrl = baseUrl.Value;
                 var teams = await client.ListTeams();
                 var count = teams.Ok ? (teams.Value["teams"] as JArray)?.Count ?? 0 : -1;
                 var domain = session.Email.Contains("@") ? session.Email.Substring(session.Email.IndexOf('@')) : "";

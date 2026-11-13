@@ -137,4 +137,13 @@ Props, set pieces and the character for the world film, text and image routes; r
 | character, text | `model_tripo-p2-text-to-3d` | `job_jZLo7F9LwnePqxsWFAFf7QHi` | 220 | ok |
 | prompt spark, live shape check | `model_scenario-skybox-gpt` | `` | 0 | ok, recommended_prompt returned |
 
+
 Total 3,782 CU.
+
+## 2026-11-13 15:19 REST client, agent bridge run (pass)
+
+| Case | Model or workflow | Job | Quoted CU | Charged CU | Result |
+|---|---|---|---|---|---|
+| image through the agent bridge (`generate`) | `model_google-gemini-nano-banana-2-1` | `job_2A6rcubEjrBumS39PzvbHMba` | 9.75 | 8 | ok: a-stylized-wooden-treasure-chest-game-oajpx6.png; placed Stylized Wooden Treasure |
+
+Total 8 CU.

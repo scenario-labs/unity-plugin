@@ -355,7 +355,7 @@ namespace Scenario.Editor.Agent
                     {
                         ["protocolVersion"] = KnownVersions.Contains(requested) ? requested : ProtocolVersion,
                         ["capabilities"] = new JObject { ["tools"] = new JObject { ["listChanged"] = false } },
-                        ["serverInfo"] = new JObject { ["name"] = "scenario-unity", ["title"] = "Scenario for Unity", ["version"] = McpClient.Version },
+                        ["serverInfo"] = new JObject { ["name"] = "scenario-unity", ["title"] = "Scenario for Unity", ["version"] = ApiClient.Version },
                         ["instructions"] = AgentTools.Instructions,
                     }), newSession);
                 }

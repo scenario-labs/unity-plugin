@@ -24,7 +24,7 @@ namespace Scenario.Editor
         internal static void ResetCachePath() => CachePath = DefaultCachePath;
         const string UploadHostSuffix = ".amazonaws.com";
 
-        public static async Task<Result<string>> UploadFile(McpClient client, string path, CancellationToken cancel = default)
+        public static async Task<Result<string>> UploadFile(ApiClient client, string path, CancellationToken cancel = default)
         {
             var type = Files.UploadTypeFor(path);
             if (type == null) return Result<string>.Fail(ErrorKind.Local, $"{Path.GetFileName(path)} cannot be used as a reference (use PNG, JPG, WebP, GLB, FBX, OBJ, WAV, MP3, OGG, MP4, MOV or WebM).");
@@ -76,7 +76,7 @@ namespace Scenario.Editor
         /// A Scenario 3D asset in another format, as a new asset (free): for inputs that
         /// refuse GLB, such as Tencent Texture Edit (FBX only). Converted once per workspace.
         /// </summary>
-        public static async Task<Result<string>> Convert(McpClient client, string assetId, string format, CancellationToken cancel = default)
+        public static async Task<Result<string>> Convert(ApiClient client, string assetId, string format, CancellationToken cancel = default)
         {
             var key = $"{client.TeamId}/{client.ProjectId}/convert/{assetId}.{format}";
             var cache = ReadCache();
@@ -99,7 +99,7 @@ namespace Scenario.Editor
         }
 
         /// <summary>A project asset: textures in any format, models, audio, video.</summary>
-        public static Task<Result<string>> UploadAsset(McpClient client, UnityEngine.Object asset, CancellationToken cancel = default)
+        public static Task<Result<string>> UploadAsset(ApiClient client, UnityEngine.Object asset, CancellationToken cancel = default)
         {
             var path = AssetDatabase.GetAssetPath(asset);
             if (asset is GameObject go && (string.IsNullOrEmpty(path) || Files.UploadTypeFor(path) == null))
@@ -115,7 +115,7 @@ namespace Scenario.Editor
         }
 
         /// <summary>A scene object or prefab, exported to GLB with glTFast.</summary>
-        public static async Task<Result<string>> UploadObject(McpClient client, GameObject root, CancellationToken cancel = default)
+        public static async Task<Result<string>> UploadObject(ApiClient client, GameObject root, CancellationToken cancel = default)
         {
             var path = await ExportGlb(root);
             if (path == null) return Result<string>.Fail(ErrorKind.Local, $"Could not export {root.name} to GLB.");

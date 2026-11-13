@@ -19,8 +19,8 @@ namespace Scenario.Editor.Tests
     /// </summary>
     public class ImportTests
     {
-        FakeMcp _server;
-        McpClient _client;
+        FakeApi _server;
+        ApiClient _client;
         string _folder;
         string _projectSettings;
         readonly Dictionary<string, (JObject asset, byte[] bytes)> _assets = new Dictionary<string, (JObject, byte[])>();
@@ -33,18 +33,18 @@ namespace Scenario.Editor.Tests
             ScenarioProjectSettings.instance.ImagesAsSprites = false;
             ScenarioProjectSettings.instance.AddCollider = true;
             _folder = "Assets/ScenarioTestTmp-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            _server = new FakeMcp();
-            _server.Tools["asset_get"] = (args, i) => FakeMcp.Result(new JObject { ["asset"] = _assets[(string)args["asset_id"]].asset });
-            _server.Tools["asset_download"] = (args, i) => FakeMcp.Result(new JObject
+            _server = new FakeApi();
+            _server.Routes["GET /assets/{id}"] = (args, i) => FakeApi.Json(new JObject { ["asset"] = _assets[(string)args["id"]].asset });
+            _server.Routes["POST /assets/{id}/download"] = (args, i) => FakeApi.Json(new JObject
             {
-                ["url"] = "https://cdn.cloud.scenario.com/assets/" + (string)args["asset_id"] + (args["format"] != null ? "?format=" + (string)args["format"] : ""),
+                ["url"] = "https://cdn.cloud.scenario.com/assets/" + (string)args["id"] + (args["targetFormat"] != null ? "?format=" + (string)args["targetFormat"] : ""),
             });
             _server.DownloadContent = url =>
             {
                 var id = url.Substring(url.LastIndexOf('/') + 1).Split('?')[0];
                 return url.Contains("?format=") && _converted.TryGetValue(id, out var converted) ? converted : _assets[id].bytes;
             };
-            _client = new McpClient(_server, new ApiKeyAuth("key_test", "secret_test"));
+            _client = new ApiClient(_server, new ApiKeyAuth("key_test", "secret_test"));
         }
 
         [TearDown]
@@ -237,11 +237,11 @@ namespace Scenario.Editor.Tests
         public void Download_FromAnUnexpectedHost_IsRefused()
         {
             Serve("asset_img00002", "image", "image/png", Png(4, 4, Color.blue));
-            _server.Tools["asset_download"] = (args, i) => FakeMcp.Result(new JObject { ["url"] = "https://evil.example/asset_img00002" });
+            _server.Routes["POST /assets/{id}/download"] = (args, i) => FakeApi.Json(new JObject { ["url"] = "https://evil.example/asset_img00002" });
             var result = Run.Sync(Importer.Import(_client, new[] { "asset_img00002" }, new ImportContext { Folder = _folder, Prompt = "x" }));
             Assert.IsFalse(result.Ok);
             StringAssert.Contains("unexpected host", result.Error.Message);
-            Assert.IsFalse(_server.Requests.Any(r => r.Method == "GET"), "nothing was downloaded");
+            Assert.IsFalse(_server.Requests.Any(r => r.Url.StartsWith("https://evil.example", System.StringComparison.Ordinal)), "nothing was downloaded");
             Assert.IsFalse(Directory.Exists(_folder) && Directory.GetFiles(_folder).Any(f => !f.EndsWith(".meta")));
         }
 
@@ -317,8 +317,8 @@ namespace Scenario.Editor.Tests
         {
             Serve("asset_mdl00001", "3d", "model/gltf-binary", Glb());
             var files = Import(OutputTypes.Model3D, "Triangle", "asset_mdl00001");
-            var download = _server.ToolArguments[_server.ToolCalls.IndexOf("asset_download")];
-            Assert.IsNull(download["format"], "a GLB comes as stored, with no conversion");
+            var download = _server.Arguments[_server.Calls.IndexOf("POST /assets/{id}/download")];
+            Assert.IsNull(download["targetFormat"], "a GLB comes as stored, with no conversion");
             StringAssert.EndsWith(".glb", files[0].Path);
             Assert.AreEqual("3d", files[0].Kind);
             Assert.IsNotNull(AssetDatabase.LoadAssetAtPath<GameObject>(files[0].Path), "glTFast imports the model");
@@ -364,7 +364,7 @@ namespace Scenario.Editor.Tests
             Serve("asset_blnd0001", "3d", "model/gltf-binary", Encoding.ASCII.GetBytes("BLENDER-v405 not a glb"), "3d23d");
             _converted["asset_blnd0001"] = Glb();
             var files = Import(OutputTypes.Model3D, "Chest", "asset_blnd0001");
-            var formats = _server.ToolCalls.Select((c, i) => (c, i)).Where(x => x.c == "asset_download").Select(x => (string)_server.ToolArguments[x.i]["format"]).ToList();
+            var formats = _server.Calls.Select((c, i) => (c, i)).Where(x => x.c == "POST /assets/{id}/download").Select(x => (string)_server.Arguments[x.i]["targetFormat"]).ToList();
             CollectionAssert.AreEqual(new[] { null, "glb" }, formats, "as stored first, then converted");
             StringAssert.EndsWith(".glb", files[0].Path);
             Assert.IsNotNull(AssetDatabase.LoadAssetAtPath<GameObject>(files[0].Path));
@@ -382,7 +382,7 @@ namespace Scenario.Editor.Tests
             var files = Import(OutputTypes.Model3D, "Hero", "asset_mesh0001", "asset_mesh0002", "asset_mesh0003", "asset_mesh0004", "asset_mesh0005");
             Assert.AreEqual(1, files.Count, string.Join(", ", files.Select(f => f.Path)));
             StringAssert.EndsWith(".glb", files[0].Path);
-            Assert.AreEqual(1, _server.ToolCalls.Count(c => c == "asset_download"), "the copies are not downloaded");
+            Assert.AreEqual(1, _server.Calls.Count(c => c == "POST /assets/{id}/download"), "the copies are not downloaded");
         }
 
         [Test]
@@ -481,8 +481,8 @@ namespace Scenario.Editor.Tests
         {
             Serve("asset_splt0001", "3d", "model/spz", new byte[] { 0x1F, 0x8B, 8, 0, 0, 0, 0, 0 }, "img2splat");
             var files = Import(OutputTypes.Model3D, "Chest", "asset_splt0001");
-            var download = _server.ToolArguments[_server.ToolCalls.IndexOf("asset_download")];
-            Assert.IsNull(download["format"], "no conversion for a splat");
+            var download = _server.Arguments[_server.Calls.IndexOf("POST /assets/{id}/download")];
+            Assert.IsNull(download["targetFormat"], "no conversion for a splat");
             StringAssert.EndsWith(".spz", files[0].Path);
             Assert.AreEqual("splat", files[0].Kind);
             var placed = Place(OutputTypes.Model3D, files, "Chest", null, create: true);

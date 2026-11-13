@@ -68,7 +68,7 @@ namespace Scenario.Editor
         public static ScenarioService Instance => _instance ?? (_instance = new ScenarioService());
         public static bool Exists => _instance != null;
 
-        public readonly McpClient Client;
+        public readonly ApiClient Client;
         public readonly CredentialStore Credentials;
         public readonly JobLedger Ledger;
         public readonly Catalog Catalog;
@@ -110,12 +110,12 @@ namespace Scenario.Editor
 
         ScenarioService(ITransport transport, CredentialStore credentials, string ledgerPath, string catalogPath, bool readEnvironment)
         {
-            Client = new McpClient(transport);
+            Client = new ApiClient(transport);
             if (readEnvironment)
             {
-                var endpoint = McpClient.EndpointFrom(Environment.GetEnvironmentVariable);
-                if (endpoint.Ok) Client.Endpoint = endpoint.Value;
-                else Debug.LogWarning("Scenario: " + endpoint.Error.Message);
+                var baseUrl = ApiClient.BaseUrlFrom(Environment.GetEnvironmentVariable);
+                if (baseUrl.Ok) Client.BaseUrl = baseUrl.Value;
+                else Debug.LogWarning("Scenario: " + baseUrl.Error.Message);
             }
             Credentials = credentials;
             Ledger = new JobLedger(ledgerPath);
@@ -845,8 +845,8 @@ namespace Scenario.Editor
 
         // --- Suggestions and Prompt Spark -------------------------------------
 
-        /// <summary>Free: Scenario's ranked models for a capability and prompt.</summary>
-        public Task<Result<JObject>> Recommend(string capability, string prompt, int limit = 3) => Client.Recommend(capability, prompt, limit);
+        /// <summary>Free: Scenario's recommended models for a capability.</summary>
+        public Task<Result<JObject>> Recommend(string capability, int limit = 3) => Client.Recommend(capability, limit);
 
         readonly Dictionary<string, double> _sparkPrices = new Dictionary<string, double>();
 
@@ -854,16 +854,24 @@ namespace Scenario.Editor
         public async Task<Result<double>> PromptSparkPrice(string modelId)
         {
             if (_sparkPrices.TryGetValue(modelId, out var known)) return Result<double>.Success(known);
+            if (EstimateAlarm)
+                return Result<double>.Fail(ErrorKind.EstimateJob, "Price checks are paused: an earlier check returned a job. Check recent jobs, then restart Unity to resume.");
             var dry = await Client.PromptSpark(modelId, "", null, 1, dryRun: true);
-            if (!dry.Ok) return dry.Cast<double>();
-            if (ReturnedJob(dry.Value)) return Result<double>.Fail(ErrorKind.EstimateJob, "Prompt Spark returned a job on a price check.");
+            if (!dry.Ok)
+            {
+                if (dry.Error.Kind == ErrorKind.EstimateJob)
+                {
+                    EstimateAlarm = true;
+                    Notify(dry.Error.Message, "error");
+                    Emit();
+                }
+                return dry.Cast<double>();
+            }
             var cu = Json.Num(dry.Value, "creativeUnitsCost", -1);
             if (cu < 0) return Result<double>.Fail(ErrorKind.Protocol, "Scenario returned no price for Prompt Spark.");
             _sparkPrices[modelId] = cu;
             return Result<double>.Success(cu);
         }
-
-        static bool ReturnedJob(JObject value) => McpClient.CreatedJobId(value).Length > 0;
 
         /// <summary>
         /// Paid (a few CU): a better prompt for this model. Same rules as a generation:
@@ -892,9 +900,7 @@ namespace Scenario.Editor
             var charged = Json.Num(result.Value, "creativeUnitsCost", price.Value);
             Ledger.MarkCharged(row.LocalId, charged, Json.Now());
             Emit();
-            var improved = Json.Str(result.Value, "recommended_prompt");
-            if (improved.Length == 0 && result.Value["prompts"] is JArray prompts && prompts.Count > 0)
-                improved = prompts[0] is JObject first ? Json.Str(first, "prompt") : prompts[0].ToString();
+            var improved = result.Value["prompts"] is JArray prompts && prompts.Count > 0 ? prompts[0].ToString().Trim() : "";
             return improved.Length > 0 ? Result<string>.Success(improved) : Result<string>.Fail(ErrorKind.Protocol, "Prompt Spark returned no prompt.");
         }
 
