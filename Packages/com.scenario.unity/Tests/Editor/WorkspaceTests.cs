@@ -66,6 +66,7 @@ namespace Scenario.Editor.Tests
             if (_window != null) _window.Close();
             ScenarioService.ResetForTests();
             EditorJsonUtility.FromJsonOverwrite(_settings, ScenarioUserSettings.instance);
+            ScenarioUserSettings.instance.Save();
         }
 
         /// <summary>teams_list for an account: each team with its project ids.</summary>

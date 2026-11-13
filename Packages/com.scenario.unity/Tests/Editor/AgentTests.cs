@@ -50,6 +50,7 @@ namespace Scenario.Editor.Tests
             AgentServer.ResetTokenCache();
             ScenarioService.ResetForTests();
             EditorJsonUtility.FromJsonOverwrite(_settings, ScenarioUserSettings.instance);
+            ScenarioUserSettings.instance.Save();
             if (_wasRunning) AgentServer.Start();
         }
 

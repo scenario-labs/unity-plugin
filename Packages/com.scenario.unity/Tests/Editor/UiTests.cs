@@ -29,6 +29,10 @@ namespace Scenario.Editor.Tests
             // Editor windows need a graphics device: CI runs with -nographics skip these.
             if (SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null) Assert.Ignore("The window tests need a graphics device (run without -nographics).");
             _settings = EditorJsonUtility.ToJson(ScenarioUserSettings.instance);
+            // The window opens on the view the user left it on, and Open reuses a window already open:
+            // the tests start from a new window on Create.
+            foreach (var open in Resources.FindObjectsOfTypeAll<ScenarioWindow>()) open.Close();
+            ScenarioUserSettings.instance.View = "create";
             _server = new FakeMcp();
             _server.Tools["teams_list"] = (args, i) => FakeMcp.Fixture("teams.sse.txt");
             _server.Tools["models_list"] = (args, i) => FakeMcp.Fixture("models_page.sse.txt");
@@ -52,6 +56,7 @@ namespace Scenario.Editor.Tests
             if (_window != null) _window.Close();
             ScenarioService.ResetForTests();
             EditorJsonUtility.FromJsonOverwrite(_settings, ScenarioUserSettings.instance);
+            ScenarioUserSettings.instance.Save();
         }
 
         static IEnumerator Frames(int count = 4)

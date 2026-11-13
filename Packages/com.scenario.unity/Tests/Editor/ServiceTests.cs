@@ -31,6 +31,7 @@ namespace Scenario.Editor.Tests
         {
             ScenarioService.ResetForTests();
             EditorJsonUtility.FromJsonOverwrite(_settings, ScenarioUserSettings.instance);
+            ScenarioUserSettings.instance.Save();
         }
 
         void SignIn()
