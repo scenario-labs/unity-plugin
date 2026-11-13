@@ -59,6 +59,8 @@ namespace Scenario.Editor
     {
         const string AccessTokenKey = "Scenario.AccessToken";
         const string AccessExpiryKey = "Scenario.AccessExpiry";
+        /// <summary>Session state: the account's teams were checked once in this editor session.</summary>
+        internal const string TeamsCheckedKey = "Scenario.TeamsChecked";
         const string LedgerPath = "Library/Scenario/jobs.json";
         const string CatalogPath = "Library/Scenario/catalog.json";
 
@@ -71,7 +73,9 @@ namespace Scenario.Editor
         public readonly JobLedger Ledger;
         public readonly Catalog Catalog;
         public readonly QuoteBook Quotes = new QuoteBook();
+        /// <summary>Null when the SCENARIO_OAUTH_* variables are set wrong: browser sign-in then says why.</summary>
         readonly OAuthClient _oauth;
+        readonly string _oauthProblem;
 
         public SignInState State { get; private set; }
         public AuthMethod Method => Client.Auth.Method;
@@ -107,13 +111,21 @@ namespace Scenario.Editor
         ScenarioService(ITransport transport, CredentialStore credentials, string ledgerPath, string catalogPath, bool readEnvironment)
         {
             Client = new McpClient(transport);
+            if (readEnvironment)
+            {
+                var endpoint = McpClient.EndpointFrom(Environment.GetEnvironmentVariable);
+                if (endpoint.Ok) Client.Endpoint = endpoint.Value;
+                else Debug.LogWarning("Scenario: " + endpoint.Error.Message);
+            }
             Credentials = credentials;
             Ledger = new JobLedger(ledgerPath);
             Ledger.Load();
             Ledger.Changed += () => Changed?.Invoke();
             Catalog = new Catalog(catalogPath);
             Catalog.Load();
-            _oauth = new OAuthClient(Client.Transport);
+            var app = readEnvironment ? OAuthApp.Select(Environment.GetEnvironmentVariable) : Result<OAuthApp>.Success(OAuthApp.Production);
+            _oauth = app.Ok ? new OAuthClient(Client.Transport, app.Value) : null;
+            _oauthProblem = app.Ok ? "" : app.Error.Message;
             Client.SpendingDisabled = Environment.GetEnvironmentVariable("SCENARIO_NO_SPEND") == "1" || ScenarioUserSettings.instance.SpendingDisabled;
             Restore(readEnvironment);
             EditorApplication.update += Tick;
@@ -123,13 +135,14 @@ namespace Scenario.Editor
 
         /// <summary>
         /// Tests: replaces the shared service with one on this transport, with its ledger,
-        /// catalog and credentials in a temp folder and no environment credentials.
+        /// catalog and credentials in a temp folder (or the given store, to start from a saved
+        /// sign-in) and no environment credentials.
         /// </summary>
-        internal static ScenarioService UseForTests(ITransport transport, string folder)
+        internal static ScenarioService UseForTests(ITransport transport, string folder, CredentialStore credentials = null)
         {
             ResetForTests();
             Uploader.CachePath = System.IO.Path.Combine(folder, "uploads.json");
-            var credentials = new CredentialStore(System.IO.Path.Combine(folder, "credentials.json"), new MemorySecretStore());
+            credentials = credentials ?? new CredentialStore(System.IO.Path.Combine(folder, "credentials.json"), new MemorySecretStore());
             _instance = new ScenarioService(transport, credentials, System.IO.Path.Combine(folder, "jobs.json"), System.IO.Path.Combine(folder, "catalog.json"), readEnvironment: false);
             return _instance;
         }
@@ -173,38 +186,65 @@ namespace Scenario.Editor
                     Client.SetAuth(new ApiKeyAuth(saved.ApiKey, saved.Secret));
                     State = SignInState.SignedIn;
                 }
-                else if (saved.Method == "oauth")
+                else if (saved.Method == "oauth" && _oauth != null)
                 {
-                    var tokens = new OAuthTokens
+                    // Resumed only when this identity provider issued it to this application. A session
+                    // from another one (a client an earlier version registered, another identity provider,
+                    // or an entry saved without its provider) cannot be refreshed here: it is not resumed
+                    // and never sent anywhere. It stays in the store, which every Unity project on this
+                    // machine shares (another project may still run that version); the next sign-in
+                    // replaces it.
+                    if (_oauth.App.Issued(saved.Info))
                     {
-                        RefreshToken = saved.Secret,
-                        AccessToken = SessionState.GetString(AccessTokenKey, ""),
-                        ExpiresAt = SessionState.GetFloat(AccessExpiryKey, 0),
-                    };
-                    UseOAuth(Json.Str(saved.Info, "client_id"), tokens, Json.Str(saved.Info, "email"));
-                    State = SignInState.SignedIn;
+                        var tokens = new OAuthTokens
+                        {
+                            RefreshToken = saved.Secret,
+                            AccessToken = SessionState.GetString(AccessTokenKey, ""),
+                            ExpiresAt = SessionState.GetFloat(AccessExpiryKey, 0),
+                        };
+                        UseOAuth(tokens, Json.Str(saved.Info, "email"));
+                        State = SignInState.SignedIn;
+                    }
                 }
             }
             var user = ScenarioUserSettings.instance;
             Client.SetScope(user.TeamId, user.ProjectId);
-            // An API key sees only its own project: read its name for the header (free).
-            if (Client.Auth is ApiKeyAuth) EditorApplication.delayCall += () => _ = LoadTeams();
+            if (State != SignInState.SignedIn) return;
+            // An API key sees only its own project: read its name for the header (free), as before.
+            if (Client.Auth is ApiKeyAuth) EditorApplication.delayCall += () => { if (_instance == this) _ = LoadTeams(); };
+            // A Scenario account: once per editor session (not after every script reload), a free read
+            // checks that the saved project is still the account's and fills the project menus. Quiet
+            // when offline: the saved choice stays, and the next session checks again.
+            else if (!SessionState.GetBool(TeamsCheckedKey, false))
+                EditorApplication.delayCall += () =>
+                {
+                    // Only while this is still the shared service: a test may have replaced it in the meantime.
+                    if (_instance != this) return;
+                    SessionState.SetBool(TeamsCheckedKey, true);
+                    _ = LoadTeams(autoPick: true, quiet: true);
+                };
         }
 
-        void UseOAuth(string clientId, OAuthTokens tokens, string email)
+        void UseOAuth(OAuthTokens tokens, string email)
         {
-            var auth = new OAuthAuth(_oauth, clientId, tokens, email);
-            auth.TokensChanged += rotated => MainThread.Post(() => SaveTokens(clientId, rotated, email));
+            var auth = new OAuthAuth(_oauth, tokens, email);
+            // Saved only while this session is still the one in use: a refresh that lands after Sign
+            // out (or another sign-in) must not bring the old session back.
+            auth.TokensChanged += rotated => MainThread.Post(() =>
+            {
+                if (Client.Auth == auth) SaveTokens(rotated, email);
+            });
             Client.SetAuth(auth);
             RememberAccess(tokens);
         }
 
-        void SaveTokens(string clientId, OAuthTokens tokens, string email)
+        void SaveTokens(OAuthTokens tokens, string email)
         {
             RememberAccess(tokens);
             var saved = Credentials.Load();
             var info = saved.Info ?? new JObject();
-            info["client_id"] = clientId;
+            info["issuer"] = _oauth.App.Issuer;
+            info["client_id"] = _oauth.App.ClientId;
             info["email"] = email;
             Credentials.SaveRefreshToken(tokens.RefreshToken, info);
         }
@@ -224,21 +264,44 @@ namespace Scenario.Editor
         /// <summary>Opens a page in the user's browser. Tests replace it.</summary>
         internal static Action<string> OpenUrl = Application.OpenURL;
 
-        public async Task SignInWithBrowser()
+        /// <summary>Sign-in on another device is running (the code may not be there yet).</summary>
+        public bool SigningInOnDevice { get; private set; }
+        /// <summary>The code to enter on another device while that sign-in waits, else null.</summary>
+        public DeviceCode PendingDevice { get; private set; }
+
+        public Task SignInWithBrowser()
+            // The sign-in resumes on worker threads after its network calls, and Unity opens URLs only from the main thread.
+            => SignIn(false, (oauth, signIn) => OAuthSignIn.Run(oauth, url => MainThread.Post(() => OpenUrl(url)), TimeSpan.FromMinutes(5), signIn.Token));
+
+        /// <summary>For a browser that cannot reach this machine: show a code, enter it on any device.</summary>
+        public Task SignInOnAnotherDevice()
+            => SignIn(true, (oauth, signIn) => OAuthSignIn.RunOnDevice(oauth, device => MainThread.Post(() =>
+            {
+                // A late code from a sign-in that ended or was replaced is dropped.
+                if (_signIn != signIn) return;
+                PendingDevice = device;
+                Emit();
+            }), signIn.Token));
+
+        async Task SignIn(bool onDevice, Func<OAuthClient, CancellationTokenSource, Task<Result<OAuthSession>>> run)
         {
             CancelSignIn();
+            if (_oauth == null)
+            {
+                SignInError = _oauthProblem;
+                Emit();
+                return;
+            }
             var signIn = new CancellationTokenSource();
             _signIn = signIn;
             State = SignInState.SigningIn;
+            SigningInOnDevice = onDevice;
             SignInError = "";
             Emit();
             Result<OAuthSession> result;
             try
             {
-                var saved = Credentials.Load();
-                // The sign-in resumes on worker threads after its network calls, and Unity opens URLs only from the main thread.
-                result = await OAuthSignIn.Run(_oauth, url => MainThread.Post(() => OpenUrl(url)), Json.Str(saved.Info, "client_id"), Json.Str(saved.Info, "redirect_uri"),
-                    TimeSpan.FromMinutes(5), signIn.Token);
+                result = await run(_oauth, signIn);
             }
             catch (Exception e)
             {
@@ -247,6 +310,8 @@ namespace Scenario.Editor
             // Canceled, or a newer sign-in started: that one owns the panel now.
             if (_signIn != signIn) return;
             _signIn = null;
+            SigningInOnDevice = false;
+            PendingDevice = null;
             if (!result.Ok)
             {
                 State = Client.HasCredentials ? SignInState.SignedIn : SignInState.SignedOut;
@@ -256,7 +321,7 @@ namespace Scenario.Editor
             }
             var session = result.Value;
             Credentials.SaveRefreshToken(session.Tokens.RefreshToken, session.Info());
-            UseOAuth(session.ClientId, session.Tokens, session.Email);
+            UseOAuth(session.Tokens, session.Email);
             State = SignInState.SignedIn;
             Quotes.Clear();
             Emit();
@@ -269,6 +334,8 @@ namespace Scenario.Editor
         {
             _signIn?.Cancel();
             _signIn = null;
+            SigningInOnDevice = false;
+            PendingDevice = null;
             if (State != SignInState.SigningIn) return;
             State = Client.HasCredentials ? SignInState.SignedIn : SignInState.SignedOut;
             SignInError = "";
@@ -312,37 +379,61 @@ namespace Scenario.Editor
 
         public void SignOut()
         {
-            if (Client.Auth is OAuthAuth oauth)
-            {
-                var token = oauth.Tokens.RefreshToken;
-                _ = _oauth.Revoke(oauth.ClientId, token);
-            }
+            if (Client.Auth is OAuthAuth oauth && _oauth != null) _ = _oauth.Revoke(oauth.Tokens.RefreshToken);
             Credentials.Clear();
             SessionState.EraseString(AccessTokenKey);
             Client.SetAuth(new NoAuth());
-            Client.SetScope("", "");
-            var user = ScenarioUserSettings.instance;
-            user.TeamId = user.ProjectId = user.TeamName = user.ProjectName = user.Plan = "";
-            user.Save();
+            ClearWorkspace();
             Teams = new List<TeamInfo>();
-            Quotes.Clear();
+            // A read still out belongs to the account that left: its answer is ignored, so it never clears this.
+            TeamsLoading = false;
             State = SignInState.SignedOut;
             Emit();
         }
 
         // --- Workspace -------------------------------------------------------
 
-        public async Task LoadTeams(bool autoPick = false)
+        /// <summary>No team or project chosen: the window asks for one again.</summary>
+        void ClearWorkspace()
+        {
+            Client.SetScope("", "");
+            var user = ScenarioUserSettings.instance;
+            user.TeamId = user.ProjectId = user.TeamName = user.ProjectName = user.Plan = "";
+            user.Save();
+            Quotes.Clear();
+        }
+
+        Task _teamsLoad;
+        /// <summary>The sign-in the read in flight was started under.</summary>
+        IAuthProvider _teamsAuth;
+
+        /// <summary>
+        /// Reads the account's teams and projects (free). One read at a time per sign-in: a second
+        /// caller shares the read in flight, unless that read was started under another sign-in.
+        /// quiet: a failure is not shown (the check at editor start).
+        /// </summary>
+        public Task LoadTeams(bool autoPick = false, bool quiet = false)
+        {
+            if (_teamsLoad != null && !_teamsLoad.IsCompleted && _teamsAuth == Client.Auth) return _teamsLoad;
+            _teamsAuth = Client.Auth;
+            return _teamsLoad = ReadTeams(autoPick, quiet);
+        }
+
+        async Task ReadTeams(bool autoPick, bool quiet)
         {
             if (!IsSignedIn) return;
+            var auth = Client.Auth;
             TeamsLoading = true;
             Emit();
             var teams = await Client.ListTeams();
+            // Signed out, or signed in again, while the read was out: the answer (projects, or an
+            // expired sign-in) is the previous account's, and must not touch this one.
+            if (Client.Auth != auth) return;
             TeamsLoading = false;
             if (!teams.Ok)
             {
                 if (teams.Error.Kind == ErrorKind.Auth && Client.Auth is OAuthAuth) ExpireSession();
-                else Notify(teams.Error.Message, "error");
+                else if (!quiet) Notify(teams.Error.Message, "error");
                 Emit();
                 return;
             }
@@ -378,7 +469,25 @@ namespace Scenario.Editor
             var all = Teams.SelectMany(t => t.Projects.Select(p => (t, p))).ToList();
             if (Client.Auth.NeedsScope)
             {
-                if (autoPick && all.Count == 1) SelectWorkspace(all[0].t.Id, all[0].p.Id, quiet: true);
+                var hadProject = user.ProjectId.Length > 0 || Client.ProjectId.Length > 0;
+                // The saved team listed without its projects: nothing says the project is gone.
+                var savedTeam = (value["teams"] as JArray ?? new JArray()).OfType<JObject>().FirstOrDefault(t => Json.Str(t, "id") == user.TeamId);
+                if (hadProject && savedTeam != null && !(savedTeam["projects"] is JArray)) return;
+                // Otherwise the saved project is not among this account's any more (deleted, access
+                // removed, or saved under another identity provider): never send work there.
+                var gone = user.ProjectName.Length > 0 ? user.ProjectName : "The project you worked in";
+                if (autoPick && all.Count == 1)
+                {
+                    SelectWorkspace(all[0].t.Id, all[0].p.Id, quiet: true);
+                    // Generations go to another project from now on: say so.
+                    if (hadProject) Notify($"{gone} is not available to this account any more. Working in {all[0].p.Name} now.", "warning");
+                    return;
+                }
+                if (hadProject)
+                {
+                    ClearWorkspace();
+                    Notify($"{gone} is not available to this account any more. Pick a project.", "warning");
+                }
             }
             else if (all.Count >= 1)
             {

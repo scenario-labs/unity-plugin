@@ -224,5 +224,17 @@ namespace Scenario.Editor.Tests
                 return Task.FromResult(RefreshWorks);
             }
         }
+
+        [Test]
+        public void EndpointIsTheHostedMcpOrAnHttpsOverride()
+        {
+            Assert.AreEqual(McpClient.DefaultEndpoint, McpClient.EndpointFrom(_ => null).Value);
+            Assert.AreEqual(McpClient.DefaultEndpoint, McpClient.EndpointFrom(_ => "  ").Value);
+            var dev = McpClient.EndpointFrom(name => name == McpClient.EndpointVariable ? " https://mcp.example.test/mcp?toolsets=full " : null);
+            Assert.AreEqual("https://mcp.example.test/mcp?toolsets=full", dev.Value);
+            var plain = McpClient.EndpointFrom(name => name == McpClient.EndpointVariable ? "http://mcp.example.test/mcp" : null);
+            Assert.IsFalse(plain.Ok, "a bearer token never goes over plain HTTP");
+            StringAssert.Contains(McpClient.EndpointVariable, plain.Error.Message);
+        }
     }
 }

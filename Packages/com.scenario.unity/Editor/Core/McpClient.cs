@@ -20,6 +20,8 @@ namespace Scenario.Editor.Core
     public sealed class McpClient
     {
         public const string DefaultEndpoint = "https://mcp.scenario.com/mcp?toolsets=full";
+        /// <summary>Developers: the MCP of a development instance, next to SCENARIO_OAUTH_ISSUER and SCENARIO_OAUTH_CLIENT_ID.</summary>
+        public const string EndpointVariable = "SCENARIO_MCP_URL";
         public const string ProtocolVersion = "2025-03-26";
         public const string Version = "0.2.0"; // x-release-please-version
         const int ReadAttempts = 3;
@@ -43,6 +45,16 @@ namespace Scenario.Editor.Core
 
         /// <summary>Tools that never take team or project scope.</summary>
         static readonly HashSet<string> Unscoped = new HashSet<string> { "teams_list", "projects_list" };
+
+        /// <summary>The hosted Scenario MCP, or an HTTPS URL in SCENARIO_MCP_URL.</summary>
+        public static Result<string> EndpointFrom(Func<string, string> environment)
+        {
+            var url = (environment(EndpointVariable) ?? "").Trim();
+            if (url.Length == 0) return Result<string>.Success(DefaultEndpoint);
+            if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return Result<string>.Fail(ErrorKind.Local, $"{EndpointVariable} must be an HTTPS URL; using {DefaultEndpoint}.");
+            return Result<string>.Success(url);
+        }
 
         public string Endpoint = DefaultEndpoint;
         public ITransport Transport;

@@ -18,6 +18,8 @@ The command palette lists every action, model, recent job, and the steps and sce
 
 **Sign in with Scenario** opens your browser on Scenario's sign-in page. Approve, go back to Unity, then pick a team and a project in the window. Everything you generate is billed to that project. Switch it later from the header.
 
+**Sign in on another device** is for a browser that cannot reach Unity on this machine: a remote desktop, a virtual machine, a locked-down computer. Unity shows a code and a page. Open that page on any device (your phone works), enter the code and approve: Unity signs in by itself. **Open the page** and **Copy the code** save typing when the browser is on the same machine. **Cancel** stops waiting. Scenario has not turned this on for Unity yet: until then, Unity says it is not available, and you sign in with the browser or an API key.
+
 **Use an API key instead** shows two fields: the key and the secret from the Scenario web app. You can paste `key:secret` into the first field. An API key belongs to one project, so there is no picker.
 
 Where credentials live:

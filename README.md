@@ -68,6 +68,7 @@ Unity 6.0 or later. Tested on Unity 6.3 (6000.3.21f1) on macOS, with URP and wit
 ## Sign in
 
 - **Sign in with Scenario** opens your browser. Approve, go back to Unity, pick a team and a project: generations are billed to that project. Switch it later from the header.
+- **Sign in on another device** shows a code, for a browser that cannot reach Unity on this machine (a remote desktop, a locked-down computer): open the page on any device, enter the code and approve. Not available yet: until Scenario turns it on for Unity, sign in with the browser or an API key.
 - **Use an API key instead**: paste the key and secret from the Scenario web app (or `key:secret` in one go). The key is tied to one project.
 - **CI and batch mode**: set `SCENARIO_API_KEY` and `SCENARIO_API_SECRET`.
 
@@ -270,8 +271,10 @@ The window tests need a graphics device and are skipped under `-nographics`. Liv
 - `ScenarioDev.ContractCheck.Run` (free, needs `SCENARIO_NO_SPEND=1`) prices every quick pick, every 3D step and a set of workflows.
 - `ScenarioDev.Acceptance.Run` (paid, needs `SCENARIO_ACCEPT=1`) runs one generation per type and records it in `tests/live/LEDGER.md`.
 - `ScenarioDev.Accept3D.Import` (free) imports one real result of each 3D operation and checks the model, its rig and its clips, with a render of each; `ScenarioDev.Accept3D.Paid` sends a few 3D operations through the window's and the agent's paths.
-- `ScenarioDev.E2E.OAuth` checks the browser sign-in (a person signs in); `ScenarioDev.E2E.Agent` with `tools/e2e_agent.py` has Claude Code drive the editor through the agent bridge.
+- `ScenarioDev.E2E.OAuth` checks the browser sign-in (a person signs in); `ScenarioDev.E2E.Device` and `ScenarioDev.E2E.Browser` sign in through the window, then `ScenarioDev.E2E.Resume` in a new editor checks the session comes back, refreshes and signs out; `ScenarioDev.E2E.Agent` with `tools/e2e_agent.py` has Claude Code drive the editor through the agent bridge.
 - `ScenarioDev.Media.Run` renders the turntables and animations above, and `tools/build_media.py` turns them into the GIFs.
+
+To sign in against a development instance, set `SCENARIO_OAUTH_ISSUER` (HTTPS) and `SCENARIO_OAUTH_CLIENT_ID` together, with `SCENARIO_MCP_URL` naming that instance's MCP. Without them, the editor signs in as the production Unity application.
 
 ## License
 

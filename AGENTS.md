@@ -23,8 +23,9 @@ In `Packages/com.scenario.unity/Editor/` (assembly `Scenario.Editor`):
   - `McpClient.cs`: Scenario MCP calls, sessions, error kinds, retry policy
     (reads and price checks only), estimate and submit.
   - `Sse.cs`, `Json.cs`, `ScenarioResult.cs`: replies, JSON helpers, results and errors.
-  - `Auth.cs`, `OAuth.cs`, `CredentialStore.cs`: API key, OAuth (PKCE, dynamic
-    client registration, loopback redirect), environment, OS keychain.
+  - `Auth.cs`, `OAuth.cs`, `CredentialStore.cs`: API key, OAuth (PKCE as Unity's
+    registered application on Scenario's identity provider, loopback redirect on
+    any free port), environment, OS keychain.
   - `Quote.cs`: canonical JSON, fingerprints, single-use quotes.
   - `JobLedger.cs`: durable job list (`Library/Scenario/jobs.json`), states,
     reconciles Unknown rows with `jobs_list`.
@@ -110,6 +111,15 @@ SCENARIO_ACCEPT=1 SCENARIO_UNITY_SERVICE=1 Unity -batchmode -projectPath . -exec
 # Live sign-in check: the authorize URL lands in Library/ScenarioDevLogs/e2e/authorize-url.txt;
 # a person opens it and signs in within 10 minutes. Nothing is saved.
 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.OAuth
+
+# Sign-in through the window, on another device (the page and code land in Library/ScenarioDevLogs/e2e/device.txt)
+# or in the browser (authorize-url.txt); a person approves; then the project picker, SCENARIO_E2E_PROJECT chosen
+# (on production, the project dedicated to plug-in tests), a catalog read and window shots. The session stays saved.
+# Resume, in a new editor: the session comes back without a browser, refreshes and rotates, then Sign out.
+# Against a development instance, set SCENARIO_OAUTH_ISSUER, SCENARIO_OAUTH_CLIENT_ID and SCENARIO_MCP_URL.
+SCENARIO_NO_SPEND=1 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Device
+SCENARIO_NO_SPEND=1 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Browser
+SCENARIO_NO_SPEND=1 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Resume
 
 # Agent check: the bridge on in a batch editor, Claude Code drives it with free tools (temporary MCP config)
 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Agent &

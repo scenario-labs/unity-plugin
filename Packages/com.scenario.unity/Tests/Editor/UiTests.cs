@@ -122,6 +122,42 @@ namespace Scenario.Editor.Tests
             Assert.AreEqual(0, _server.ToolCalls.Count, "nothing is sent before sign-in");
         }
 
+        [UnityTest]
+        public IEnumerator SignedOut_AnotherDevice_ShowsTheCodeToEnter_AndCancelBringsTheButtonsBack()
+        {
+            _server.Other = request => request.Url == OAuthApp.Production.DeviceAuthorizationEndpoint
+                ? new HttpReply
+                {
+                    Status = 200,
+                    Body = "{\"device_code\":\"dc_1\",\"user_code\":\"ABCD-EFGH\",\"verification_uri\":\"https://id.example.test/device\",\"expires_in\":600,\"interval\":5}",
+                }
+                : new HttpReply { Status = 400, Body = "{\"error\":\"authorization_pending\"}" };
+            // The real network answers later, on a worker thread: the code reaches the view through the main thread.
+            _s = ScenarioService.UseForTests(new WorkerThreadTransport(_server), TempDir.Make("ui-device"));
+            _window = ScenarioWindow.Open();
+            yield return Frames();
+            var link = Q("signin-device");
+            Assert.IsNotNull(link, "the sign-in view offers another device");
+            var mouseUp = new Event { type = EventType.MouseUp, mousePosition = link.worldBound.center, button = 0, clickCount = 1 };
+            using (var click = ClickEvent.GetPooled(mouseUp))
+            {
+                click.target = link;
+                link.SendEvent(click);
+            }
+            yield return Until(() => Q<Label>("device-code")?.text == "ABCD-EFGH");
+            Assert.AreEqual("ABCD-EFGH", Q<Label>("device-code").text);
+            Assert.AreEqual(DisplayStyle.Flex, Q("device-code-box").style.display.value);
+            Assert.AreEqual(DisplayStyle.None, Q("signin-browser").style.display.value, "one action at a time");
+
+            _s.CancelSignIn();
+            // The window refreshes through its panel scheduler.
+            yield return Until(() => Q("signin-browser").style.display.value == DisplayStyle.Flex);
+            Assert.AreEqual(DisplayStyle.Flex, Q("signin-browser").style.display.value, "Cancel brings the sign-in buttons back");
+            Assert.AreEqual(DisplayStyle.Flex, Q("signin-device").style.display.value);
+            Assert.AreEqual(DisplayStyle.None, Q("device-code-box").style.display.value);
+            Assert.AreEqual(0, _server.ToolCalls.Count, "nothing is sent to Scenario before sign-in");
+        }
+
         T Q<T>(string name) where T : VisualElement => _window.rootVisualElement.Q<T>(name);
 
         [UnityTest]

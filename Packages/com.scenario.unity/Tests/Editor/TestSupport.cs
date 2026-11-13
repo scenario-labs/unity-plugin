@@ -166,6 +166,24 @@ namespace Scenario.Editor.Tests
         public static void Sync(Task task) => Assert.IsTrue(task.Wait(TimeSpan.FromSeconds(20)), "task did not complete");
     }
 
+    /// <summary>Answers like the real network: later, on a worker thread.</summary>
+    public sealed class WorkerThreadTransport : ITransport
+    {
+        readonly FakeMcp _inner;
+        public WorkerThreadTransport(FakeMcp inner) { _inner = inner; }
+
+        public async Task<HttpReply> SendAsync(HttpRequestSpec request, CancellationToken cancel = default)
+        {
+            await Task.Delay(50).ConfigureAwait(false);
+            return await _inner.SendAsync(request, cancel).ConfigureAwait(false);
+        }
+
+        public Task<HttpReply> DownloadAsync(string url, string destPath, double timeoutSeconds, IProgress<float> progress = null, CancellationToken cancel = default)
+            => _inner.DownloadAsync(url, destPath, timeoutSeconds, progress, cancel);
+
+        public Task Delay(double seconds, CancellationToken cancel = default) => _inner.Delay(seconds, cancel);
+    }
+
     public static class TempDir
     {
         public static string Make(string label)
