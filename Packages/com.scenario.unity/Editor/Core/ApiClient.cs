@@ -414,18 +414,16 @@ namespace Scenario.Editor.Core
             for (var attempt = 0; attempt < attempts; attempt++)
             {
                 result = await SendOnce(kind, method, url, payload, timeout, cancel);
-                if (result.Ok)
+                if (kind == Kind.Price)
                 {
-                    if (kind == Kind.Price)
-                    {
-                        var jobId = CreatedJobId(result.Value);
-                        if (jobId.Length > 0)
-                            return Result<JObject>.Fail(ErrorKind.EstimateJob,
-                                $"Scenario returned a job for a price check, so it may have started a paid run. Automatic price checks are off for this session. Check job {jobId}.",
-                                e => e.JobId = jobId);
-                    }
-                    return result;
+                    // A job in a price check's reply, even an error reply, means a paid run may have started.
+                    var jobId = CreatedJobId(result.Ok ? result.Value : Json.Parse(result.Error.Detail ?? ""));
+                    if (jobId.Length > 0)
+                        return Result<JObject>.Fail(ErrorKind.EstimateJob,
+                            $"Scenario returned a job for a price check, so it may have started a paid run. Automatic price checks are off for this session. Check job {jobId}.",
+                            e => e.JobId = jobId);
                 }
+                if (result.Ok) return result;
                 var error = result.Error;
                 if (cancel.IsCancellationRequested) return result;
                 if (attempt + 1 < attempts && Errors.RetryableKinds.Contains(error.Kind))
@@ -490,7 +488,8 @@ namespace Scenario.Editor.Core
                 return Result<JObject>.Fail(errorKind, errorKind == ErrorKind.Canceled ? "Canceled." : Errors.MessageFor(errorKind), e =>
                 {
                     e.Detail = reply.ErrorDetail ?? "";
-                    if (paid && errorKind != ErrorKind.Canceled) Ambiguous(e);
+                    // Canceling a paid call after it left does not unsend it.
+                    if (paid) Ambiguous(e);
                 });
             }
             var body = reply.Body ?? "";

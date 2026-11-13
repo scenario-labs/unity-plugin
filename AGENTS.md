@@ -82,9 +82,10 @@ Every change keeps them.
    price checks stop (`EstimateAlarm`).
 2. Generate needs an unused quote whose fingerprint matches the request now; it
    consumes it.
-3. A paid call (a generate or workflow run without dry run, Prompt Spark,
-   uploads) is sent once. A transport failure on it marks the job Unknown, which
-   blocks the same fingerprint until reconciled.
+3. A paid call (a generate or workflow run without dry run, Prompt Spark) is
+   sent once. A transport failure on it marks the job Unknown, which blocks the
+   same fingerprint until reconciled. Uploads cost no CU: they are sent once and
+   refused when spending is off, with no ledger row.
 4. The intent row is written to the ledger before the paid request.
 5. `SCENARIO_NO_SPEND=1` and the Settings switch refuse paid calls before any
    request.

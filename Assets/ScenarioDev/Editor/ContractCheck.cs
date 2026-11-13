@@ -51,7 +51,12 @@ namespace ScenarioDev
                     var found = kind == "audio"
                         ? await S.Client.ListAssets(new[] { "txt2audio", "audio2audio", "video2audio", "uploaded-audio" }, 1, "")
                         : await S.Client.SearchAssets("", $"kind IN [\"{kind}\"]", 1, 0);
-                    var list = found.Ok ? found.Value["assets"] as JArray ?? found.Value["hits"] as JArray : null;
+                    if (!found.Ok)
+                    {
+                        Fail($"source {kind}", found.Error.Message);
+                        continue;
+                    }
+                    var list = found.Value["assets"] as JArray ?? found.Value["hits"] as JArray;
                     var id = (string)list?.FirstOrDefault()?["id"];
                     if (id != null) sources[kind] = id;
                     Log($"source {kind}: {id ?? "none in the project"}");

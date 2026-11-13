@@ -65,6 +65,27 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
+        public void APriceCheckErrorThatCarriesAJobRaisesTheAlarm()
+        {
+            _server.Routes[Generate] = (args, i) => FakeApi.Status(502, "{\"job\":{\"jobId\":\"job_oops\"}}");
+            var price = Run.Sync(_client.Estimate("m", new JObject()));
+            Assert.AreEqual(ErrorKind.EstimateJob, price.Error.Kind);
+            Assert.AreEqual("job_oops", price.Error.JobId);
+            Assert.AreEqual(1, _server.Count(Generate), "never retried");
+        }
+
+        [Test]
+        public void ACanceledPaidCallIsAmbiguous()
+        {
+            _server.Routes[Generate] = (args, i) => FakeApi.Fail("canceled");
+            var result = Run.Sync(_client.Submit("m", new JObject()));
+            Assert.AreEqual(ErrorKind.Canceled, result.Error.Kind);
+            Assert.IsTrue(result.Error.Ambiguous, "canceling after it left does not prove it did not run");
+            _server.Routes["GET /jobs/{id}"] = (args, i) => FakeApi.Fail("canceled");
+            Assert.IsFalse(Run.Sync(_client.GetJob("job_1")).Error.Ambiguous, "a read is never ambiguous");
+        }
+
+        [Test]
         public void APaidCallIsNeverRetried()
         {
             _server.Routes[Generate] = (args, i) => FakeApi.Status(503, "busy");

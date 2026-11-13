@@ -598,6 +598,15 @@ namespace Scenario.Editor.Agent
             var capability = S_(args, "capability");
             if (B_(args, "recommended", false))
             {
+                // The API recommends by capability. A family such as motion shares its capabilities with
+                // other models (txt23d, video23d), so its own quick picks are the recommendation.
+                var family = type.Length > 0 && capability.Length == 0 && OutputTypes.Get(type).Family != null;
+                if (family)
+                    return Ok(new JObject
+                    {
+                        ["output_type"] = type,
+                        ["ranked"] = new JArray(OutputTypes.Get(type).QuickPicks.Select((id, i) => new JObject { ["rank"] = i + 1, ["model_id"] = id, ["name"] = S.Model(id)?.Name ?? id })),
+                    });
                 var cap = capability.Length > 0 ? capability : CapabilityFor(type);
                 var result = await S.Recommend(cap, Math.Min(limit, 10));
                 if (!result.Ok) throw new ToolError(result.Error.Message);
