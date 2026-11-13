@@ -385,6 +385,8 @@ namespace Scenario.Editor
             Client.SetAuth(new NoAuth());
             ClearWorkspace();
             Teams = new List<TeamInfo>();
+            // A read still out belongs to the account that left: its answer is ignored, so it never clears this.
+            TeamsLoading = false;
             State = SignInState.SignedOut;
             Emit();
         }
@@ -402,23 +404,31 @@ namespace Scenario.Editor
         }
 
         Task _teamsLoad;
+        /// <summary>The sign-in the read in flight was started under.</summary>
+        IAuthProvider _teamsAuth;
 
         /// <summary>
-        /// Reads the account's teams and projects (free). One read at a time: a second caller
-        /// shares the read in flight. quiet: a failure is not shown (the check at editor start).
+        /// Reads the account's teams and projects (free). One read at a time per sign-in: a second
+        /// caller shares the read in flight, unless that read was started under another sign-in.
+        /// quiet: a failure is not shown (the check at editor start).
         /// </summary>
         public Task LoadTeams(bool autoPick = false, bool quiet = false)
         {
-            if (_teamsLoad != null && !_teamsLoad.IsCompleted) return _teamsLoad;
+            if (_teamsLoad != null && !_teamsLoad.IsCompleted && _teamsAuth == Client.Auth) return _teamsLoad;
+            _teamsAuth = Client.Auth;
             return _teamsLoad = ReadTeams(autoPick, quiet);
         }
 
         async Task ReadTeams(bool autoPick, bool quiet)
         {
             if (!IsSignedIn) return;
+            var auth = Client.Auth;
             TeamsLoading = true;
             Emit();
             var teams = await Client.ListTeams();
+            // Signed out, or signed in again, while the read was out: the answer (projects, or an
+            // expired sign-in) is the previous account's, and must not touch this one.
+            if (Client.Auth != auth) return;
             TeamsLoading = false;
             if (!teams.Ok)
             {

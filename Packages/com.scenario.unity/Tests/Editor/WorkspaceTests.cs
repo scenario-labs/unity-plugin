@@ -1,7 +1,9 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using Scenario.Editor.Core;
@@ -69,17 +71,19 @@ namespace Scenario.Editor.Tests
         /// <summary>teams_list for an account: each team with its project ids.</summary>
         void Account(params (string team, string[] projects)[] teams)
         {
-            _server.Tools["teams_list"] = (args, i) => FakeMcp.Result(new JObject
-            {
-                ["teams"] = new JArray(teams.Select(t => new JObject
-                {
-                    ["id"] = t.team,
-                    ["name"] = "Team " + t.team,
-                    ["plan"] = "pro",
-                    ["projects"] = new JArray(t.projects.Select(p => new JObject { ["id"] = p, ["name"] = "Project " + p })),
-                })),
-            });
+            _server.Tools["teams_list"] = (args, i) => TeamsReply(teams);
         }
+
+        static HttpReply TeamsReply(params (string team, string[] projects)[] teams) => FakeMcp.Result(new JObject
+        {
+            ["teams"] = new JArray(teams.Select(t => new JObject
+            {
+                ["id"] = t.team,
+                ["name"] = "Team " + t.team,
+                ["plan"] = "pro",
+                ["projects"] = new JArray(t.projects.Select(p => new JObject { ["id"] = p, ["name"] = "Project " + p })),
+            })),
+        });
 
         /// <summary>Editor start with a saved browser or device sign-in and, when given, a saved project.</summary>
         ScenarioService Resume(string team = "", string project = "")
@@ -302,6 +306,118 @@ namespace Scenario.Editor.Tests
             Assert.AreEqual(OAuthApp.ProductionIssuer, Json.Str(saved.Info, "issuer"));
             Assert.AreEqual(OAuthApp.ProductionClientId, Json.Str(saved.Info, "client_id"));
             Assert.AreEqual("me@x.com", Json.Str(saved.Info, "email"));
+        }
+
+        /// <summary>
+        /// The first teams_list (the resumed account's) is held until the gate opens: the test signs out
+        /// and in as someone else meanwhile. Later reads answer for the new account.
+        /// </summary>
+        void HoldFirstRead(ManualResetEventSlim entered, ManualResetEventSlim gate, HttpReply first, HttpReply later)
+        {
+            _server.Tools["teams_list"] = (args, i) =>
+            {
+                if (i > 0) return later;
+                entered.Set();
+                gate.Wait(TimeSpan.FromSeconds(20));
+                return first;
+            };
+        }
+
+        [UnityTest]
+        public IEnumerator ATeamsReadEndingAfterAnotherSignIn_DoesNotChooseItsProject()
+        {
+            SessionState.SetBool(ScenarioService.TeamsCheckedKey, true);
+            using (var entered = new ManualResetEventSlim())
+            using (var gate = new ManualResetEventSlim())
+            {
+                HoldFirstRead(entered, gate, TeamsReply(("t_a", new[] { "p_a" })), TeamsReply(("t_b", new[] { "p_b" })));
+                var s = ScenarioService.UseForTests(new WorkerThreadTransport(_server), _folder, StoreOf(_folder));
+                try
+                {
+                    var first = s.LoadTeams(autoPick: true);
+                    var until = EditorApplication.timeSinceStartup + 10;
+                    while (!entered.IsSet && EditorApplication.timeSinceStartup < until) yield return null;
+                    Assert.IsTrue(s.TeamsLoading);
+
+                    s.SignOut();
+                    Assert.IsFalse(s.TeamsLoading, "the read still out does not keep the menus loading");
+                    // The revocation Sign out sends reaches the scripted server before the next request.
+                    var settled = EditorApplication.timeSinceStartup + 0.3;
+                    while (EditorApplication.timeSinceStartup < settled) yield return null;
+                    var signIn = s.SignInWithApiKey("key_b", "secret_b");
+                    while (!signIn.IsCompleted && EditorApplication.timeSinceStartup < until) yield return null;
+                    Assert.IsTrue(signIn.IsCompleted && signIn.Result, s.SignInError);
+                    Assert.AreEqual("p_b", s.Client.ProjectId);
+                    while (s.CatalogLoading && EditorApplication.timeSinceStartup < until) yield return null;
+                    var second = s.LoadTeams();
+                    Assert.AreNotSame(first, second, "a read started under the previous sign-in is not shared");
+
+                    gate.Set();
+                    while (!(first.IsCompleted && second.IsCompleted) && EditorApplication.timeSinceStartup < until) yield return null;
+                    Assert.IsTrue(first.IsCompleted && second.IsCompleted);
+                    Assert.AreEqual("p_b", s.Client.ProjectId, "the previous account's project is never chosen");
+                    Assert.AreEqual("t_b", s.Teams.Single().Id);
+                    Assert.IsFalse(s.TeamsLoading);
+                }
+                finally
+                {
+                    gate.Set();
+                }
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator AnExpiredReadEndingAfterAnotherSignIn_DoesNotSignOutTheNewAccount()
+        {
+            SessionState.SetBool(ScenarioService.TeamsCheckedKey, true);
+            var tokens = _server.Other;
+            // The next account signs in on another device: the provider approves at once.
+            _server.Other = request =>
+            {
+                if (request.Url == OAuthApp.Production.DeviceAuthorizationEndpoint)
+                    return new HttpReply
+                    {
+                        Status = 200,
+                        Body = "{\"device_code\":\"dc_1\",\"user_code\":\"ABCD-EFGH\",\"verification_uri\":\"https://id.example.test/device\",\"expires_in\":600,\"interval\":5}",
+                    };
+                if (request.Url == OAuthApp.Production.UserInfoEndpoint) return new HttpReply { Status = 200, Body = "{\"email\":\"next@x.com\"}" };
+                return tokens(request);
+            };
+            using (var entered = new ManualResetEventSlim())
+            using (var gate = new ManualResetEventSlim())
+            {
+                // The resumed account's read ends refused, as when its session has expired.
+                HoldFirstRead(entered, gate, FakeMcp.Error("Unauthorized"), TeamsReply(("t_b", new[] { "p_b" })));
+                var s = ScenarioService.UseForTests(new WorkerThreadTransport(_server), _folder, StoreOf(_folder));
+                try
+                {
+                    var first = s.LoadTeams(autoPick: true);
+                    var until = EditorApplication.timeSinceStartup + 10;
+                    while (!entered.IsSet && EditorApplication.timeSinceStartup < until) yield return null;
+
+                    s.SignOut();
+                    // The revocation Sign out sends reaches the scripted server before the next request.
+                    var settled = EditorApplication.timeSinceStartup + 0.3;
+                    while (EditorApplication.timeSinceStartup < settled) yield return null;
+                    var signIn = s.SignInOnAnotherDevice();
+                    while (!signIn.IsCompleted && EditorApplication.timeSinceStartup < until) yield return null;
+                    Assert.IsTrue(s.IsSignedIn, s.SignInError);
+                    Assert.AreEqual("next@x.com", s.AccountLabel);
+
+                    gate.Set();
+                    while (!first.IsCompleted && EditorApplication.timeSinceStartup < until) yield return null;
+                    Assert.IsTrue(first.IsCompleted);
+                    for (var i = 0; i < 5; i++) yield return null;
+                    Assert.IsTrue(s.IsSignedIn, "the new account stays signed in");
+                    Assert.AreEqual("", s.SignInError);
+                    Assert.AreEqual("oauth", s.Credentials.Load().Method);
+                    Assert.AreEqual("p_b", s.Client.ProjectId);
+                }
+                finally
+                {
+                    gate.Set();
+                }
+            }
         }
 
         static CredentialStore StoreOf(string folder)
