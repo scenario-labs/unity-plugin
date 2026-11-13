@@ -188,12 +188,13 @@ namespace Scenario.Editor
                 }
                 else if (saved.Method == "oauth" && _oauth != null)
                 {
-                    // Resumed only when issued to this application. A session from another one (a client an
-                    // earlier version registered, or another identity provider) cannot be refreshed here: it
-                    // is not resumed and never sent anywhere. It stays in the store, which every Unity project
-                    // on this machine shares (another project may still run that version); the next sign-in
+                    // Resumed only when this identity provider issued it to this application. A session
+                    // from another one (a client an earlier version registered, another identity provider,
+                    // or an entry saved without its provider) cannot be refreshed here: it is not resumed
+                    // and never sent anywhere. It stays in the store, which every Unity project on this
+                    // machine shares (another project may still run that version); the next sign-in
                     // replaces it.
-                    if (Json.Str(saved.Info, "client_id") == _oauth.App.ClientId)
+                    if (_oauth.App.Issued(saved.Info))
                     {
                         var tokens = new OAuthTokens
                         {
@@ -242,6 +243,7 @@ namespace Scenario.Editor
             RememberAccess(tokens);
             var saved = Credentials.Load();
             var info = saved.Info ?? new JObject();
+            info["issuer"] = _oauth.App.Issuer;
             info["client_id"] = _oauth.App.ClientId;
             info["email"] = email;
             Credentials.SaveRefreshToken(tokens.RefreshToken, info);

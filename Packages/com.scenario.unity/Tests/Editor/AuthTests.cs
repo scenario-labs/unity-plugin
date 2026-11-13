@@ -301,16 +301,18 @@ namespace Scenario.Editor.Tests
         }
     }
 
-    /// <summary>A saved browser sign-in resumes only when Unity's application issued it.</summary>
+    /// <summary>A saved browser sign-in resumes only when Scenario's identity provider issued it to Unity's application.</summary>
     public class SavedSessionTests
     {
         [TearDown]
         public void TearDown() => ScenarioService.ResetForTests();
 
-        static CredentialStore StoreWithSession(string folder, string clientId)
+        static CredentialStore StoreWithSession(string folder, string clientId, string issuer = OAuthApp.ProductionIssuer)
         {
             var store = new CredentialStore(Path.Combine(folder, "credentials.json"), new MemorySecretStore());
-            store.SaveRefreshToken("rt_saved", new JObject { ["client_id"] = clientId, ["email"] = "me@x.com" });
+            var info = new JObject { ["client_id"] = clientId, ["email"] = "me@x.com" };
+            if (issuer != null) info["issuer"] = issuer;
+            store.SaveRefreshToken("rt_saved", info);
             return store;
         }
 
@@ -339,6 +341,23 @@ namespace Scenario.Editor.Tests
             Assert.AreEqual(0, server.Requests.Count, "never sent to a provider that did not issue it");
             // The store is shared by every Unity project on the machine: another may still run that version.
             Assert.AreEqual("oauth", store.Load().Method, "left for the version that issued it, until the next sign-in");
+        }
+
+        // Unity's client id with another provider's token (a development provider set with production's
+        // client id), or an entry saved without its provider: refreshing would send that token to a
+        // provider that may not have issued it.
+        [TestCase("https://id.example.test")]
+        [TestCase(null)]
+        public void ASessionFromAnotherProvider_WithUnitysClientId_IsNotResumed_NorSentAnywhere(string issuer)
+        {
+            var folder = TempDir.Make("saved-issuer");
+            var store = StoreWithSession(folder, OAuthApp.ProductionClientId, issuer);
+            var server = new FakeMcp();
+            var s = ScenarioService.UseForTests(server, folder, store);
+            Assert.AreEqual(SignInState.SignedOut, s.State);
+            Assert.IsFalse(s.Client.HasCredentials);
+            Assert.AreEqual(0, server.Requests.Count, "never sent to a provider that may not have issued it");
+            Assert.AreEqual("oauth", store.Load().Method, "left in place until the next sign-in");
         }
     }
 
@@ -539,6 +558,7 @@ namespace Scenario.Editor.Tests
             Assert.AreEqual("oauth", saved.Method);
             Assert.AreEqual("rt1", saved.Secret);
             Assert.AreEqual(OAuthApp.ProductionClientId, Json.Str(saved.Info, "client_id"));
+            Assert.AreEqual(OAuthApp.ProductionIssuer, Json.Str(saved.Info, "issuer"), "saved with the provider that issued it");
         }
 
         [UnityTest]

@@ -90,12 +90,14 @@ namespace Scenario.Editor.Tests
             user.TeamName = team.Length > 0 ? "Team " + team : "";
             user.ProjectName = project.Length > 0 ? "Project " + project : "";
             var store = new CredentialStore(Path.Combine(_folder, "credentials.json"), new MemorySecretStore());
-            store.SaveRefreshToken("rt_saved", new JObject { ["client_id"] = OAuthApp.ProductionClientId, ["email"] = "me@x.com" });
+            store.SaveRefreshToken("rt_saved", SavedInfo());
             var s = ScenarioService.UseForTests(_server, _folder, store);
             s.Notified += (message, level) => _notices.Add((message, level));
             Assert.IsTrue(s.IsSignedIn, "the saved session resumes");
             return s;
         }
+
+        static JObject SavedInfo() => new JObject { ["issuer"] = OAuthApp.ProductionIssuer, ["client_id"] = OAuthApp.ProductionClientId, ["email"] = "me@x.com" };
 
         static readonly (string, string[])[] TwoTeams = { ("t1", new[] { "p1", "p2" }), ("t2", new[] { "p3" }) };
 
@@ -286,10 +288,26 @@ namespace Scenario.Editor.Tests
             Assert.AreEqual("", s.Credentials.Load().Method, "Sign out stays signed out");
         }
 
+        [UnityTest]
+        public IEnumerator ARotatedRefreshToken_IsSavedWithItsProviderAndApplication()
+        {
+            Account(TwoTeams);
+            var s = Resume("t1", "p1");
+            // The read refreshes the access token; the rotated token is saved on a later editor update.
+            Run.Sync(s.LoadTeams(autoPick: true));
+            var until = EditorApplication.timeSinceStartup + 10;
+            while (s.Credentials.Load().Secret != "rt_next" && EditorApplication.timeSinceStartup < until) yield return null;
+            var saved = s.Credentials.Load();
+            Assert.AreEqual("rt_next", saved.Secret);
+            Assert.AreEqual(OAuthApp.ProductionIssuer, Json.Str(saved.Info, "issuer"));
+            Assert.AreEqual(OAuthApp.ProductionClientId, Json.Str(saved.Info, "client_id"));
+            Assert.AreEqual("me@x.com", Json.Str(saved.Info, "email"));
+        }
+
         static CredentialStore StoreOf(string folder)
         {
             var store = new CredentialStore(Path.Combine(folder, "credentials.json"), new MemorySecretStore());
-            store.SaveRefreshToken("rt_saved", new JObject { ["client_id"] = OAuthApp.ProductionClientId, ["email"] = "me@x.com" });
+            store.SaveRefreshToken("rt_saved", SavedInfo());
             return store;
         }
 

@@ -52,6 +52,13 @@ namespace Scenario.Editor.Core
         public string DeviceAuthorizationEndpoint => Issuer + "/oauth/device_authorization";
 
         /// <summary>
+        /// A saved session's info says this provider issued it to this application. Both are
+        /// checked: the same client id on another provider is another application, and an entry
+        /// saved without its provider is not trusted.
+        /// </summary>
+        public bool Issued(JObject info) => Json.Str(info, "issuer") == Issuer && Json.Str(info, "client_id") == ClientId;
+
+        /// <summary>
         /// Production, or the development provider and application named by both
         /// SCENARIO_OAUTH_ISSUER (HTTPS) and SCENARIO_OAUTH_CLIENT_ID.
         /// </summary>
@@ -437,11 +444,13 @@ namespace Scenario.Editor.Core
     public sealed class OAuthSession
     {
         public OAuthTokens Tokens;
+        public string Issuer = "";
         public string ClientId = "";
         public string Email = "";
         public string Name = "";
 
-        public JObject Info() => new JObject { ["client_id"] = ClientId, ["email"] = Email, ["name"] = Name };
+        /// <summary>What is saved with the refresh token: who issued it, to which application, and for whom.</summary>
+        public JObject Info() => new JObject { ["issuer"] = Issuer, ["client_id"] = ClientId, ["email"] = Email, ["name"] = Name };
     }
 
     public static class OAuthSignIn
@@ -488,6 +497,7 @@ namespace Scenario.Editor.Core
             return Result<OAuthSession>.Success(new OAuthSession
             {
                 Tokens = tokens,
+                Issuer = client.App.Issuer,
                 ClientId = client.App.ClientId,
                 Email = Json.Str(user, "email"),
                 Name = Json.Str(user, "name", Json.Str(user, "given_name")),
