@@ -2,7 +2,7 @@
 The PR title becomes the squash commit header: type(scope): summary.
 Use an imperative summary, no trailing period, and at most 120 characters.
 Scopes: core, mcp, auth, quote, jobs, schema, types, service, import, ui, agent,
-api, tests, tools, docs, ci, deps, release, agents, repo (see commitlint.config.mjs).
+api, tests, tools, docs, site, ci, deps, release, agents, repo (see commitlint.config.mjs).
 Example: fix(import): keep the selection after placing a material
 
 Keep one concern per PR and the description short. Tick only checks you did;

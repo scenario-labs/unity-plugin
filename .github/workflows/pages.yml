@@ -1,0 +1,165 @@
+# GitHub Pages publish for https://unity.scenario.com: the page in site/ with
+# the pictures in docs/images/ (as images/), and the newest release's tarball
+# under download/. Runs after each release, on every push to main that changes
+# the page, and by hand. As for photoshop.scenario.com, the page and the
+# pictures come from the newest published release, so the site never names a
+# version or describes a feature people cannot install yet.
+# Pages serves it at https://scenario-labs.github.io/unity-plugin/; the Vercel
+# project on tools/site_proxy holds unity.scenario.com and forwards every path
+# there. Set once:
+#   1. Repository Settings > Pages: Source "GitHub Actions" and no custom
+#      domain: one would make Pages redirect the proxy's requests back to it.
+#   2. Vercel (scenario-labs): project unity-plugin-site, Root Directory
+#      tools/site_proxy, framework Other, no build or install command,
+#      production branch main, Ignored Build Step
+#      `git diff --quiet HEAD^ HEAD -- .`, Web Analytics on, and the domain
+#      unity.scenario.com. tools/site_proxy holds only vercel.json and
+#      middleware.ts: Vercel would serve any other file there instead of
+#      forwarding its path. The middleware counts downloads in PostHog with
+#      POSTHOG_PROJECT_TOKEN (none: no count), POSTHOG_HOST (US cloud by
+#      default) and SITE_ORIGIN (this Pages address by default) from the
+#      project's environment.
+#   3. DNS for scenario.com (Route 53, scenario-labs/management): CNAME unity
+#      to the target Vercel shows for that domain.
+name: Publish site
+
+on:
+  # workflow_run is safe here: the build checks out main, never the
+  # triggering run's head_sha, uses none of its artifacts, keeps no
+  # credentials, and runs only after a successful push run on main. Not the
+  # release event: its ref is the tag, and the github-pages environment only
+  # accepts deployments from main.
+  workflow_run:
+    workflows: [release-please]
+    types: [completed]
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/images/**"
+      - "tools/release/stamp-site.js"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Only this repository publishes, and only after a release run that
+    # succeeded on a push to main.
+    if: >-
+      github.repository == 'scenario-labs/unity-plugin' &&
+      (github.event_name != 'workflow_run' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # The newest published release: its page and pictures replace main's,
+      # and its version and tag fill the page's {{version}} and {{ref}}
+      # (tools/release/stamp-site.js). A release from before the page (0.2.0
+      # and earlier) has none, so main's page and pictures are published with
+      # the release's version and links to main.
+      - name: Take the page from the newest published release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # An empty answer means no release yet; an error from GitHub fails the
+          # step rather than publishing the site without its download.
+          tag="$(gh release list --repo "$GITHUB_REPOSITORY" --json tagName,isLatest --jq '[.[] | select(.isLatest)][0].tagName // ""')"
+          if [ -z "$tag" ]; then
+            echo "::notice::No release yet: main's page, with no download"
+            version="$(jq -r .version Packages/com.scenario.unity/package.json)"
+            { echo "tag="; echo "version=$version"; echo "ref=main"; } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          version="${tag#unity-plugin-v}"
+          [[ "$tag" == "unity-plugin-v$version" && "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Unexpected latest release tag $tag"; exit 1; }
+          git fetch --no-tags --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
+          commit="$(git rev-parse "refs/tags/$tag^{commit}")"
+          [ "$(git show "$commit:Packages/com.scenario.unity/package.json" | jq -r .version)" = "$version" ] || { echo "::error::$tag's package is not $version"; exit 1; }
+          # git grep reads the blob itself: a pipe into grep -q would end
+          # git show with SIGPIPE, which pipefail reads as no match.
+          if git grep -qF '{{version}}' "$commit" -- site/index.html; then
+            git restore --source="$commit" -- site docs/images
+            ref="$tag"
+          else
+            echo "::notice::$tag has no site: publishing main's page with version $version"
+            ref=main
+          fi
+          { echo "tag=$tag"; echo "version=$version"; echo "ref=$ref"; } >> "$GITHUB_OUTPUT"
+      - name: Put the site together
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          REF: ${{ steps.release.outputs.ref }}
+        run: |
+          set -euo pipefail
+          cp -R site "$RUNNER_TEMP/site"
+          cp -R docs/images "$RUNNER_TEMP/site/images"
+          node tools/release/stamp-site.js "$RUNNER_TEMP/site/index.html" "$VERSION" "$REF"
+      # The latest release's tarball, served from the site's own domain at
+      # download/com.scenario.unity-X.Y.Z.tgz, where the Vercel middleware
+      # (tools/site_proxy/middleware.ts) counts downloads;
+      # download/latest.json names its version and /download/latest redirects
+      # to it. Checked against the release's SHA256SUMS and its build
+      # attestation first. A release without a tarball (0.2.0 and earlier)
+      # adds nothing: /download/latest then sends to the releases page.
+      - name: Add the latest release's tarball
+        if: steps.release.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          tag: ${{ steps.release.outputs.tag }}
+          version: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          file="com.scenario.unity-$version.tgz"
+          assets="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          if ! grep -qx SHA256SUMS <<<"$assets" || ! grep -qxF "$file" <<<"$assets"; then
+            echo "::notice::$tag has no checksummed tarball: /download/latest sends to the releases page"
+            exit 0
+          fi
+          dir="$RUNNER_TEMP/release"
+          mkdir -p "$dir" "$RUNNER_TEMP/site/download"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$dir" --pattern SHA256SUMS --pattern "$file"
+          grep -E "^[0-9a-f]{64}  ${file//./\\.}\$" "$dir/SHA256SUMS" > "$RUNNER_TEMP/site/download/SHA256SUMS"
+          (cd "$dir" && sha256sum -c "$RUNNER_TEMP/site/download/SHA256SUMS")
+          # Built by this repository's release workflow from the tagged commit.
+          gh attestation verify "$dir/$file" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release-please.yml"
+          cp "$dir/$file" "$RUNNER_TEMP/site/download/"
+          printf '{ "version": "%s" }\n' "$version" > "$RUNNER_TEMP/site/download/latest.json"
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

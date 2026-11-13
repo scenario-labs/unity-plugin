@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/page.js", "destination": "https://unity.scenario.com/_vercel/insights/script.js" },
+    { "source": "/(.*)", "destination": "https://scenario-labs.github.io/unity-plugin/$1" }
+  ]
+}
