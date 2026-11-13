@@ -212,7 +212,13 @@ namespace Scenario.Editor.UI
             {
                 _catalogStamp = S.Catalog.FetchedAt;
                 if (string.IsNullOrEmpty(_modelId) || (S.Model(_modelId) == null && !S.Catalog.IsEmpty && _schema == null)) SelectType(_type, force: true);
-                else BuildModelCard();
+                else
+                {
+                    BuildModelCard();
+                    // The catalog reloads when the project changes: a model that failed to load in the
+                    // previous project (or before one was picked) is read again in this one.
+                    if (_schema == null && _schemaError.Length > 0 && !_schemaLoading) _ = LoadSchema();
+                }
             }
             BuildBanners();
             UpdateFooter();
