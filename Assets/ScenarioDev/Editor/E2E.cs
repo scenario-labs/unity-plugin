@@ -176,15 +176,17 @@ namespace ScenarioDev
                 s.SelectWorkspace(choice.t.Id, choice.p.Id);
                 // Choosing a project starts the catalog refresh: wait for it to start and to finish.
                 await Until(() => s.CatalogLoading, 5);
-                await Until(() => !s.CatalogLoading, 90);
+                var catalogRead = await Until(() => !s.CatalogLoading, 90);
                 await Task.Delay(1500);
                 Shoot(window, name + "-4-workspace", lines);
-                lines.Add(s.CatalogError.Length > 0 ? "catalog FAIL: " + s.CatalogError : $"catalog read in the chosen project: {s.Catalog.Models.Count} models");
+                lines.Add(!catalogRead ? "catalog FAIL: still loading after 90 seconds"
+                    : s.CatalogError.Length > 0 ? "catalog FAIL: " + s.CatalogError
+                    : $"catalog read in the chosen project: {s.Catalog.Models.Count} models");
                 var saved = s.Credentials.Load();
                 var app = OAuthApp.Select(Environment.GetEnvironmentVariable);
-                var ownApp = app.Ok && Json.Str(saved.Info, "client_id") == app.Value.ClientId;
+                var ownApp = app.Ok && app.Value.Issued(saved.Info);
                 lines.Add($"session saved: {(saved.Method == "oauth" ? "yes" : "NO")}, in {saved.Source}, issued to {(ownApp ? "the selected application" : "ANOTHER application")}");
-                code = s.CatalogError.Length == 0 && saved.Method == "oauth" && ownApp ? 0 : 1;
+                code = catalogRead && s.CatalogError.Length == 0 && saved.Method == "oauth" && ownApp ? 0 : 1;
             }
             catch (Exception e)
             {
@@ -203,9 +205,9 @@ namespace ScenarioDev
         /// <summary>
         /// After E2E.Device or E2E.Browser and an editor restart: the saved session resumes without a
         /// browser, the read at editor start refreshes the access token (the refresh token rotates in the
-        /// credential store) and keeps the saved project, or brings the picker back when
-        /// SCENARIO_E2E_STALE_PROJECT=1 replaced it by one the account does not have. Then Sign out empties
-        /// the store and the provider refuses the old refresh token.
+        /// credential store) and keeps the saved project, or, when SCENARIO_E2E_STALE_PROJECT=1 replaced it
+        /// by one the account does not have, brings the picker back (or takes the account's only project).
+        /// Then Sign out empties the store and the provider refuses the old refresh token.
         /// </summary>
         public static void Resume() => EditorApplication.delayCall += () => _ = RunResume();
 
@@ -217,7 +219,8 @@ namespace ScenarioDev
             try
             {
                 // SCENARIO_E2E_STALE_PROJECT=1: the saved project is replaced by one the account does not
-                // have, as after a deletion; the editor start must bring the picker back.
+                // have, as after a deletion; the editor start must bring the picker back, or take the
+                // account's only project.
                 var stale = Environment.GetEnvironmentVariable("SCENARIO_E2E_STALE_PROJECT") == "1";
                 var user = ScenarioUserSettings.instance;
                 if (stale && user.ProjectId.Length > 0)
@@ -247,11 +250,18 @@ namespace ScenarioDev
                 // The rotated token is saved on the main thread after the refresh.
                 var rotated = await Until(() => Fingerprint(s.Credentials.Load().Secret) != before, 10);
                 lines.Add($"resumed without a browser as *{Domain(s.AccountLabel)}, {s.Teams.Count} team(s) read, refresh token rotated: {(rotated ? "yes" : "NO")}");
-                var workspaceOk = stale ? s.NeedsWorkspace : !s.NeedsWorkspace && s.Client.ProjectId == savedProject;
-                lines.Add(stale
-                    ? $"saved project replaced by one the account does not have: picker {(s.NeedsWorkspace ? "shown again" : "NOT shown")}"
-                    : $"saved project ({(savedName.Length > 0 ? "chosen before the restart" : "none")}) {(workspaceOk ? "kept" : "NOT kept")} after the restart");
-                Shoot(window, stale ? "resume-1-picker-again" : "resume-1-signed-in", lines);
+                var projects = s.Teams.SelectMany(t => t.Projects).ToList();
+                // Stale: several projects left bring the picker back; a single one is taken (WorkspaceTests).
+                var onlyProject = projects.Count == 1 ? projects[0].Id : "";
+                var workspaceOk = !stale ? !s.NeedsWorkspace && s.Client.ProjectId == savedProject
+                    : onlyProject.Length > 0 ? !s.NeedsWorkspace && s.Client.ProjectId == onlyProject
+                    : s.NeedsWorkspace;
+                lines.Add(!stale
+                    ? $"saved project ({(savedName.Length > 0 ? "chosen before the restart" : "none")}) {(workspaceOk ? "kept" : "NOT kept")} after the restart"
+                    : onlyProject.Length > 0
+                        ? $"saved project replaced by one the account does not have: the only project {(workspaceOk ? "taken" : "NOT taken")}"
+                        : $"saved project replaced by one the account does not have: picker {(s.NeedsWorkspace ? "shown again" : "NOT shown")}");
+                Shoot(window, stale && onlyProject.Length == 0 ? "resume-1-picker-again" : "resume-1-signed-in", lines);
 
                 var refresh = ((OAuthAuth)s.Client.Auth).Tokens.RefreshToken;
                 s.SignOut();
@@ -262,9 +272,11 @@ namespace ScenarioDev
                 await Task.Delay(3000);
                 var app = OAuthApp.Select(Environment.GetEnvironmentVariable);
                 var reuse = await new OAuthClient(new HttpTransport(), app.Value).Refresh(refresh, Json.Now());
-                lines.Add($"provider refuses the old refresh token: {(!reuse.Ok && reuse.Error.Kind == ErrorKind.Auth ? "yes" : "NO")}");
+                // Only a refusal proves the revocation: a network or server failure does not.
+                var refused = !reuse.Ok && reuse.Error.Kind == ErrorKind.Auth;
+                lines.Add($"provider refuses the old refresh token: {(refused ? "yes" : "NO")}");
                 Shoot(window, "resume-2-signed-out", lines);
-                code = rotated && workspaceOk && emptied && !reuse.Ok ? 0 : 1;
+                code = rotated && workspaceOk && emptied && refused ? 0 : 1;
             }
             catch (Exception e)
             {
