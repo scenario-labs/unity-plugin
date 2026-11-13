@@ -165,6 +165,22 @@ test("contributors: a published release, another commit or notes without people 
   assert.equal(update(REPO, "unity-plugin-v0.3.0", SHA, bots.request, bots.run), false);
   assert.equal(bots.edits.length, 0);
   assert.throws(() => update(REPO, "v0.3.0", SHA, fakeGh().request, fakeGh().run), /stable release tag/);
+  // Only a 404 means "an issue, not a pull request": any other failure stops
+  // the update, so no Contributors section is saved with someone missing.
+  const flaky = fakeGh();
+  const request = (args) => {
+    if (args[1] === `repos/${REPO}/pulls/210`) throw Object.assign(new Error("Command failed: gh api"), { stderr: "gh: Bad Gateway (HTTP 502)\n" });
+    return flaky.request(args);
+  };
+  assert.throws(() => update(REPO, "unity-plugin-v0.3.0", SHA, request, flaky.run), /Cannot read pull request #210/);
+  assert.equal(flaky.edits.length, 0);
+  // gh's own wording for a missing pull request, on stderr.
+  const issue = fakeGh();
+  const issueRequest = (args) => {
+    if (args[1] === `repos/${REPO}/pulls/135`) throw Object.assign(new Error("Command failed: gh api"), { stderr: "gh: Not Found (HTTP 404)\n" });
+    return issue.request(args);
+  };
+  assert.equal(update(REPO, "unity-plugin-v0.3.0", SHA, issueRequest, issue.run), true);
   const out = { text: "", write(s) { this.text += s; } };
   const err = { text: "", write(s) { this.text += s; } };
   const g = fakeGh({ isDraft: false });

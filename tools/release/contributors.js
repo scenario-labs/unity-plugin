@@ -23,7 +23,7 @@ const HEADING = "### Contributors";
 
 // The pull request numbers the notes link for `repo`, in order, once each.
 function linkedNumbers(body, repo) {
-  const escaped = repo.replace(/[.]/g, "\\.");
+  const escaped = repo.replace(/[\\^$.*+?()[\]{}|/-]/g, "\\$&");
   const re = new RegExp(`\\[#(\\d+)\\]\\(https://github\\.com/${escaped}/(?:issues|pull)/(\\d+)\\)`, "g");
   const seen = new Set();
   for (const m of body.matchAll(re)) if (m[1] === m[2]) seen.add(Number(m[1]));
@@ -52,13 +52,16 @@ function withContributors(body, logins) {
   return `${body.trimEnd()}\n\n${HEADING}\n\nThanks to ${mentionList(people)}.\n`;
 }
 
-// The author of pull request `number`, or null when the number is an issue.
+// The author of pull request `number`, or null when the number is an issue
+// (GitHub answers 404). Any other failure stops the update, so a timeout
+// never saves a Contributors section with someone missing.
 function author(repo, number, request) {
   let pull;
   try {
     pull = request(["api", `repos/${repo}/pulls/${number}`]);
-  } catch {
-    return null;
+  } catch (error) {
+    if (/\bHTTP 404\b/.test(`${(error && error.stderr) || ""}\n${(error && error.message) || ""}`)) return null;
+    throw new ReleaseError(`Cannot read pull request #${number}`);
   }
   return pull && pull.user && typeof pull.user.login === "string" ? pull.user.login : null;
 }
