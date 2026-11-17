@@ -79,7 +79,7 @@ namespace ScenarioDev
             {
                 EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
                 Light();
-                foreach (var show in Shows.Where(s => Only.Length == 0 || Only.Contains(s.Name)))
+                foreach (var show in Shows.Concat(StoryShows()).Where(s => Only.Length == 0 || Only.Contains(s.Name)))
                 {
                     try { Render(show); }
                     catch (Exception e)
@@ -100,6 +100,21 @@ namespace ScenarioDev
                 EditorApplication.Exit(failures > 0 ? 1 : 0);
             }
         };
+
+        /// <summary>The handbook story's results (ScenarioDev.Story), by the asset ids its paid run kept.</summary>
+        static IEnumerable<Show> StoryShows()
+        {
+            const string state = "Library/ScenarioDevLogs/story/story.json";
+            var story = File.Exists(state) ? Scenario.Editor.Core.Json.ParseObject(File.ReadAllText(state)) : null;
+            if (story == null) yield break;
+            string Asset(string step) => (string)story[step]?["asset"];
+            if (Asset("hunter") != null) yield return new Show { Name = "story-hunter", Asset = Asset("hunter"), Label = "Generate · Meshy 7.1" };
+            if (Asset("retexture") != null) yield return new Show { Name = "story-retexture", Asset = Asset("retexture"), Label = "Retexture · Meshy 7" };
+            if (Asset("rig") != null) yield return new Show { Name = "story-walk", Asset = Asset("rig"), State = "walk", Label = "Rig + walk · Meshy" };
+            if (Asset("rig") != null) yield return new Show { Name = "story-run", Asset = Asset("rig"), State = "run", Label = "Rig + run · Meshy" };
+            if (Asset("cheer") != null) yield return new Show { Name = "story-cheer", Asset = Asset("cheer"), State = "", Label = "Motion library · Meshy" };
+            if (Asset("dig") != null) yield return new Show { Name = "story-dig", Asset = Asset("dig"), State = "", Label = "Text to motion · Uthana" };
+        }
 
         /// <summary>Key light from the front left (the default scene's light), a cool fill from the right, a rim from behind.</summary>
         static void Light()
@@ -153,7 +168,7 @@ namespace ScenarioDev
 
         static int Turntable(GameObject go, Show show, string dir)
         {
-            var bounds = Bounds(go);
+            var bounds = BoundsOf(go);
             var center = bounds.center;
             var radius = bounds.extents.magnitude;
             var start = go.transform.position;
@@ -221,7 +236,7 @@ namespace ScenarioDev
                     else reach = r;
                 }
             }
-            var bounds = reach ?? Bounds(go);
+            var bounds = reach ?? BoundsOf(go);
             meta["bounds"] = bounds.ToString("F2");
             var radius = Mathf.Max(bounds.extents.y * 1.05f, new Vector2(bounds.extents.x, bounds.extents.z).magnitude);
             try
@@ -294,7 +309,7 @@ namespace ScenarioDev
                    ?? go.GetComponentsInChildren<SkinnedMeshRenderer>(true).Select(s => s.rootBone).FirstOrDefault(b => b != null);
         }
 
-        static Texture2D Frame(Vector3 center, float radius, float margin)
+        internal static Texture2D Frame(Vector3 center, float radius, float margin)
         {
             var holder = new GameObject("Media Camera");
             var rt = new RenderTexture(Size, Size, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { antiAliasing = 4 };
@@ -335,7 +350,7 @@ namespace ScenarioDev
             Object.DestroyImmediate(frame);
         }
 
-        static Bounds Bounds(GameObject go)
+        internal static Bounds BoundsOf(GameObject go)
         {
             var renderers = go.GetComponentsInChildren<Renderer>();
             if (renderers.Length == 0) return new Bounds(go.transform.position, Vector3.one);

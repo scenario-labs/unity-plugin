@@ -147,3 +147,27 @@ Total 3,782 CU.
 | image through the agent bridge (`generate`) | `model_google-gemini-nano-banana-2-1` | `job_2A6rcubEjrBumS39PzvbHMba` | 9.75 | 8 | ok: a-stylized-wooden-treasure-chest-game-oajpx6.png; placed Stylized Wooden Treasure |
 
 Total 8 CU.
+
+## 2026-11-16 18:06 handbook story run (1 failure(s))
+
+| Case | Model or workflow | Job | Quoted CU | Charged CU | Result |
+|---|---|---|---|---|---|
+| story hunter | `model_meshy-7-1-txt23d` | `job_xphpTYQLsJUWjWbFBCD3L9cY` | 120 | 120 | ok: a-stylized-treasure-hunter-full-body-kfu8mn.glb |
+| story retexture | `model_meshy-7-retexture` | `job_kTj2vqQHewxtTp8AzvJioCMg` | 40 | 40 | ok: desert-explorer-sand-colored-linen-shirt-p9kbey.glb |
+| story rig | `model_meshy-rigging` | `job_eGgXoTesz62bLFcXeTiXvsDg` | 20 | 20 | ok: rig-the-treasure-hunter-48fdf3.glb, rig-the-treasure-hunter-ewzyfv.glb, rig-the-treasure-hunter-oq1g1b.glb |
+| story cheer | `model_meshy-animation` | `job_figo86UwvpP9mEDYyn6n2hSK` | 32 | 32 | ok: victory-cheer-8qntam.glb |
+| story dig | `model_uthana-text-to-motion-3.0` | `` | 228 | ? | FAIL not sent: 228 CU is above the cap of 150 |
+
+## 2026-11-16 18:13 handbook story run (pass)
+
+| Case | Model or workflow | Job | Quoted CU | Charged CU | Result |
+|---|---|---|---|---|---|
+| story dig | `model_uthana-text-to-motion-3.0` | `job_rQky59wUn7WBWZCZ5RdJL4Bo` | 228 | 228 | ok: looks-around-kneels-and-digs-in-the-sand-9xqazs.glb |
+| story sand | `model_patina-material` | `job_EVfwRhNPFNoGT4oHyPz78V5c` | 18.75 | 17 | ok: fine-desert-sand-with-small-pebbles-and-cysaz1-base.png, fine-desert-sand-with-small-pebbles-and-9mdzqg-albedo.png, fine-desert-sand-with-small-pebbles-and-wce26v-normal.png, fine-desert-sand-with-small-pebbles-and-jmclxt-roughness.png, fine-desert-sand-with-small-pebbles-and-uwjimh-metallic.png, fine-desert-sand-with-small-pebbles-and-du1evq-height.png |
+| story sky | `model_scenario-skybox-gpt` | `job_bNsXNJ4QmfJtxaTkwpJq5izk` | 33.75 | 32 | ok: a-desert-canyon-at-golden-hour-red-rock-uh2c5w-panorama.png |
+
+## 2026-11-16 18:17 handbook story run (pass)
+
+| Case | Model or workflow | Job | Quoted CU | Charged CU | Result |
+|---|---|---|---|---|---|
+| story chest | `model_rodin-hyper3d-v2-5-text-to-3d` | `job_ZUywsuVPgfVSXKnr4PZKZzx4` | 60 | 60 | ok: an-open-wooden-treasure-chest-yrqj27.glb |
