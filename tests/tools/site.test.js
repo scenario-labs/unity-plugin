@@ -1,12 +1,11 @@
 "use strict";
-// unity.scenario.com: the page in site/ (published by
-// .github/workflows/pages.yml with docs/images/ as images/), its version stamp
-// (tools/release/stamp-site.js), and the Vercel project in tools/site_proxy/
-// that holds the domain: routing, download counts in PostHog and the
-// /download/latest redirect. A local server stands in for GitHub Pages
-// (download/latest.json) and for PostHog. The middleware is TypeScript, run
-// through Node's type stripping. Adapted from scenario-labs/photoshop-plugin
-// (MIT).
+// unity.scenario.com: .github/workflows/pages.yml, which publishes the
+// handbook and the latest tarball with scenario-labs/components, and the
+// Vercel project in tools/site_proxy/ that holds the domain: routing, download
+// counts in PostHog and the /download/latest redirect. A local server stands
+// in for GitHub Pages (download/latest.json) and for PostHog. The middleware
+// is TypeScript, run through Node's type stripping. Adapted from
+// scenario-labs/photoshop-plugin (MIT).
 //
 //   node --test "tests/tools/*.test.js"
 
@@ -16,24 +15,14 @@ const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
-const { stamp } = require("../../tools/release/stamp-site.js");
 
 const ROOT = path.resolve(__dirname, "..", "..");
-const SITE = path.join(ROOT, "site");
 const PROXY = path.join(ROOT, "tools", "site_proxy");
-const HTML = fs.readFileSync(path.join(SITE, "index.html"), "utf8");
 const PAGES = fs.readFileSync(path.join(ROOT, ".github", "workflows", "pages.yml"), "utf8");
-// Served by the Vercel project, not by Pages: the Web Analytics script and the
-// redirect to the latest tarball (tools/site_proxy/middleware.ts).
-const PROXY_PATHS = ["/page.js", "/download/latest"];
-// pages.yml copies docs/images/ into the site as images/.
-const COPIED = { "images/": "docs/images/" };
 
-// ------------------------------------------------------------------ the page
+// ------------------------------------------------------------------ the site
 
 test("the site publishes to unity.scenario.com through the Vercel proxy", () => {
-  // Pages keeps no custom domain: one would make it redirect the proxy's requests back to it.
-  assert.ok(!fs.existsSync(path.join(SITE, "CNAME")), "no CNAME in site/");
   const proxy = JSON.parse(fs.readFileSync(path.join(PROXY, "vercel.json"), "utf8"));
   assert.deepEqual(proxy.rewrites, [
     { source: "/page.js", destination: "https://unity.scenario.com/_vercel/insights/script.js" },
@@ -41,53 +30,17 @@ test("the site publishes to unity.scenario.com through the Vercel proxy", () => 
   ]);
   // Vercel serves any other file in that folder instead of forwarding its path.
   assert.deepEqual(fs.readdirSync(PROXY).filter((n) => n !== ".DS_Store").sort(), ["middleware.ts", "vercel.json"]);
-  assert.match(HTML, /<title>Scenario for Unity<\/title>/);
-  assert.match(HTML, /<script defer src="\/page\.js"><\/script>/);
-  assert.ok(HTML.includes('href="/download/latest"'), "the page links the latest tarball");
-  // A folder link without its final slash would make Pages redirect to its own address.
-  assert.deepEqual([...HTML.matchAll(/\b(?:src|href)="([^":#?]+\/)"/g)].map((m) => m[1]), []);
 });
 
-test("every local file the page links to is published", () => {
-  const refs = [...HTML.matchAll(/\b(?:src|href|srcset)="([^"]+)"/g)].map((m) => m[1]);
-  const local = refs.filter((u) => !/^(?:[a-z]+:|#|\/\/)/i.test(u) && !PROXY_PATHS.includes(u));
-  assert.ok(local.length >= 8, "the page shows the window, the results and the steps");
-  for (const u of local) {
-    const p = decodeURI(u.split(/[?#]/)[0]);
-    assert.ok(!path.isAbsolute(p) && !p.split("/").includes(".."), `${u} stays inside the site`);
-    const prefix = Object.keys(COPIED).find((k) => p.startsWith(k));
-    const source = prefix ? COPIED[prefix] + p.slice(prefix.length) : `site/${p}`;
-    assert.ok(fs.existsSync(path.join(ROOT, source)), `${u} resolves (${source})`);
-  }
-  for (const [to, from] of Object.entries(COPIED)) assert.ok(PAGES.includes(`cp -R ${from.slice(0, -1)} "$RUNNER_TEMP/site/${to.slice(0, -1)}"`), `pages.yml copies ${from} to ${to}`);
-});
-
-test("the page names no version or ref of its own: the publish fills them", () => {
-  const { version } = JSON.parse(fs.readFileSync(path.join(ROOT, "Packages", "com.scenario.unity", "package.json"), "utf8"));
-  assert.ok(!HTML.includes(version), `the page does not spell out ${version}`);
-  assert.ok(!/unity-plugin-v\d|com\.scenario\.unity-\d/.test(HTML), "no release tag or tarball name with a version");
-  assert.ok(HTML.includes("{{version}}") && HTML.includes("{{ref}}"));
-  assert.ok(!HTML.includes("/blob/main/"), "links to the repository go through {{ref}}");
-});
-
-test("stamp fills the version and the ref, and refuses anything else", () => {
-  const out = stamp(HTML, "0.3.0", "unity-plugin-v0.3.0");
-  assert.ok(!out.includes("{{"));
-  assert.ok(out.includes("#unity-plugin-v0.3.0") && out.includes("com.scenario.unity-0.3.0.tgz"));
-  assert.ok(out.includes("/blob/unity-plugin-v0.3.0/README.md"));
-  assert.ok(stamp(HTML, "0.2.0", "main").includes("/blob/main/Packages/com.scenario.unity/Documentation~/USER_GUIDE.md"));
-  assert.throws(() => stamp(HTML, "0.3", "main"), /Not a release version/);
-  assert.throws(() => stamp(HTML, "0.3.0", "photoshop-plugin-v0.3.0"), /Not main or a release tag/);
-  assert.throws(() => stamp("<p>no version</p>", "0.3.0", "main"), /no \{\{version\}\}/);
-  assert.throws(() => stamp("{{version}} {{date}}", "0.3.0", "main"), /keeps \{\{date\}\}/);
-});
-
-test("pages.yml publishes the newest release's page and its verified tarball", () => {
+test("pages.yml builds the site with a pinned components release and serves the release tarball", () => {
   assert.match(PAGES, /^ {2}workflow_run:\n {4}workflows: \[release-please\]\n {4}types: \[completed\]\n {4}branches: \[main\]$/m);
-  assert.match(PAGES, /node tools\/release\/stamp-site\.js "\$RUNNER_TEMP\/site\/index\.html" "\$VERSION" "\$REF"/);
-  assert.match(PAGES, /sha256sum -c "\$RUNNER_TEMP\/site\/download\/SHA256SUMS"/);
-  assert.match(PAGES, /gh attestation verify "\$dir\/\$file" --repo "\$GITHUB_REPOSITORY" \\\n\s+--signer-workflow "\$GITHUB_REPOSITORY\/\.github\/workflows\/release-please\.yml"/);
-  assert.match(PAGES, /printf '\{ "version": "%s" \}\\n' "\$version" > "\$RUNNER_TEMP\/site\/download\/latest\.json"/);
+  assert.match(PAGES, /uses: scenario-labs\/components@[0-9a-f]{40} # v\d+\.\d+\.\d+$/m);
+  // The name the release workflow attaches and the middleware counts.
+  assert.match(PAGES, /^ {10}download: com\.scenario\.unity-\{version\}\.tgz$/m);
+  // The docs the handbook is built from trigger a publish.
+  for (const p of ["README.md", "docs/**", "Packages/com.scenario.unity/CHANGELOG.md", "handbook.config.json"]) {
+    assert.ok(PAGES.includes(`      - "${p}"\n`), `a push changing ${p} publishes`);
+  }
 });
 
 // ------------------------------------------------------------ the middleware

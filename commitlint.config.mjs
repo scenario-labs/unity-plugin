@@ -53,7 +53,7 @@ export default {
         "tests", // test harness only; a test for a product area keeps the product scope
         "tools", // tools/ and Assets/ScenarioDev
         "docs", // README.md, Documentation~, docs/
-        "site", // site/, tools/site_proxy and pages.yml: unity.scenario.com
+        "site", // pages.yml, tools/site_proxy and handbook.config.json: unity.scenario.com
         "ci", // .github/workflows
         "deps", // pins: Unity, packages, actions, npm
         "release", // release-please config and manifest, version fields, CHANGELOG plumbing
