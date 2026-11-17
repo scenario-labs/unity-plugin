@@ -1,6 +1,6 @@
 # Scenario for Unity: user guide
 
-Version 0.1.0 <!-- x-release-please-version -->. Unity 6.0 or later.
+Unity 6.0 or later. **Settings** shows the version you have.
 
 ## 1. Install and open
 

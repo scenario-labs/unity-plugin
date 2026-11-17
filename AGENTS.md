@@ -93,7 +93,7 @@ Every change keeps them.
 
 ## Commands
 
-Unity 6000.3.21f1 (the version in `ProjectSettings/ProjectVersion.txt`).
+Use the Unity version in `ProjectSettings/ProjectVersion.txt`.
 
 ```sh
 # EditMode tests; keep graphics on so the window tests run (no window is shown in batch mode)
@@ -185,7 +185,10 @@ the release GitHub App's token: only that App may create release tags (the
 `versioning` ruleset), and a release PR opened with `GITHUB_TOKEN` would never
 run CI. A run that fails after drafting is fixed by rerunning that same run,
 never by publishing the draft by hand. Never edit
-versions or `CHANGELOG.md` by hand: release-please bumps
-`Packages/com.scenario.unity/package.json`, `ApiClient.Version` and the README
-(`x-release-please` markers), and writes the changelog from the squashed PR
-titles. Users pin a release with `#unity-plugin-vX.Y.Z` on the git URL.
+versions or `CHANGELOG.md` by hand: the version lives in
+`Packages/com.scenario.unity/package.json` only (with release-please's
+`.release-please-manifest.json`), and everything else reads it there:
+`ApiClient.Version` through the Package Manager, the README badge, the
+handbook and the release tooling. release-please bumps both files and writes
+the changelog from the squashed PR titles. Users pin a release with
+`#unity-plugin-vX.Y.Z` on the git URL.

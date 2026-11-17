@@ -6,8 +6,8 @@
   "site": "https://unity.scenario.com",
   "description": "User handbook for Scenario for Unity {version}: install, sign in, create images, video, 3D, motion, audio, materials and skyboxes, every 3D operation, agents, prices, jobs, files and troubleshooting.",
   "version": {
-    "file": "Packages/com.scenario.unity/Editor/Core/ApiClient.cs",
-    "pattern": "Version = \"([^\"]+)\""
+    "file": "Packages/com.scenario.unity/package.json",
+    "json": "version"
   },
   "media": "docs/images",
   "analytics": "/page.js",

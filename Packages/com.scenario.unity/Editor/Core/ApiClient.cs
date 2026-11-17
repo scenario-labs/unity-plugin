@@ -25,7 +25,8 @@ namespace Scenario.Editor.Core
         public const string DefaultBaseUrl = "https://api.cloud.scenario.com/v1";
         /// <summary>Developers: the API of a development instance, next to SCENARIO_OAUTH_ISSUER and SCENARIO_OAUTH_CLIENT_ID.</summary>
         public const string BaseUrlVariable = "SCENARIO_API_URL";
-        public const string Version = "0.2.0"; // x-release-please-version
+        /// <summary>The package's version, read from its package.json: the only file a release changes.</summary>
+        public static readonly string Version = PackageVersion();
         /// <summary>Prompt Spark's mode for one prompt rewritten for one model.</summary>
         public const string PromptSparkMode = "contextual-v2";
         const int ReadAttempts = 3;
@@ -87,6 +88,12 @@ namespace Scenario.Editor.Core
         {
             TeamId = teamId ?? "";
             ProjectId = projectId ?? "";
+        }
+
+        static string PackageVersion()
+        {
+            try { return UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(ApiClient).Assembly)?.version ?? "unknown"; }
+            catch (Exception) { return "unknown"; }
         }
 
         static string DefaultUserAgent()

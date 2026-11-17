@@ -22,6 +22,14 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
+        public void VersionIsThePackageVersion()
+        {
+            var manifest = JObject.Parse(System.IO.File.ReadAllText(System.IO.Path.GetFullPath("Packages/com.scenario.unity/package.json")));
+            Assert.AreEqual((string)manifest["version"], ApiClient.Version, "package.json is the only place the version is written");
+            StringAssert.StartsWith($"ScenarioUnity/{ApiClient.Version} (", _client.UserAgent);
+        }
+
+        [Test]
         public void EstimateReadsThePriceOfADryRun()
         {
             _server.Routes[Generate] = (args, i) => FakeApi.Fixture("estimate.json", 269);
