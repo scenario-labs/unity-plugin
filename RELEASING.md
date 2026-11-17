@@ -5,7 +5,7 @@ Releases are made by `.github/workflows/release-please.yml`, which follows the r
 ## How a release happens
 
 1. Pull requests are squash-merged with a Conventional Commit title (`commitlint.config.mjs`). That title is what the changelog says.
-2. On each push to `main`, release-please keeps one pull request open, **chore: release unity-plugin X.Y.Z**. It sets the next version in `Packages/com.scenario.unity/package.json`, `McpClient.Version` and the README (`x-release-please` markers), and writes the entry in `Packages/com.scenario.unity/CHANGELOG.md`. Before 1.0, a `feat` raises the minor version and anything else the patch; a `Release-As: X.Y.Z` footer in a commit sets the version.
+2. On each push to `main`, release-please keeps one pull request open, **chore: release unity-plugin X.Y.Z**. It sets the next version in `Packages/com.scenario.unity/package.json`, the only file that holds it (everything else reads it there), and writes the entry in `Packages/com.scenario.unity/CHANGELOG.md`. Before 1.0, a `feat` raises the minor version and anything else the patch; a `Release-As: X.Y.Z` footer in a commit sets the version.
 3. Merging that pull request is the decision to release. The same workflow run then:
    - creates a draft release targeting the release commit;
    - builds the UPM tarball `com.scenario.unity-X.Y.Z.tgz` from that commit (`tools/release/build-package.js`) and checks it (`tools/release/check-package.js`: the version of the tag, every `.meta`, nothing dev-only, every file the committed one);
