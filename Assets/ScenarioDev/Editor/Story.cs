@@ -10,6 +10,8 @@ using UnityEditor;
 using UnityEditor.Animations;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using Object = UnityEngine.Object;
 
 namespace ScenarioDev
@@ -83,6 +85,42 @@ namespace ScenarioDev
                 Name = "sky", Type = OutputTypes.Skybox, Model = "model_scenario-skybox-gpt", Cap = 60,
                 Prompt = "A desert canyon at golden hour, red rock arches, warm hazy sky, distant dunes",
             },
+            // The hero shot's set, in more detail: a sky of dunes upscaled four times, clean sand, a chest at
+            // Rodin's high tier with 4K textures, and the shovel and coins of the find.
+            new Case
+            {
+                Name = "dunes-sky", Type = OutputTypes.Skybox, Model = "model_scenario-skybox-gpt", Cap = 60,
+                Prompt = "Endless golden sand dunes rolling to the horizon at golden hour, the sun low and glowing just above the horizon, a dramatic sky of long luminous clouds, faint distant mesas in the warm haze, cinematic, highly detailed",
+            },
+            new Case
+            {
+                Name = "dunes-sky-4x", Type = OutputTypes.Skybox, Model = "model_sc-upscale-flux-skybox", Cap = 150,
+                Prompt = "Golden sand dunes and a dramatic golden hour sky, crisp cloud detail, fine sand ripples",
+                From = { ["image"] = "dunes-sky" }, Inputs = new JObject { ["upscaleFactor"] = 4, ["baseModel"] = "FLUX.1-Krea-dev" },
+            },
+            new Case
+            {
+                Name = "clean-sand", Type = OutputTypes.Material, Model = "model_patina-material", Cap = 40, Target = "sand",
+                Prompt = "Fine clean golden desert sand with soft wind ripples, no stones",
+            },
+            new Case
+            {
+                Name = "rich-chest", Type = OutputTypes.Model3D, Model = "model_rodin-hyper3d-v2-5-text-to-3d", Cap = 200,
+                Prompt = "An open ornate wooden treasure chest overflowing with shiny gold coins, jewels and pearls, brass corners and iron bands, weathered wood, highly detailed game prop",
+                Inputs = new JObject { ["tier"] = "Gen-2.5-High", ["addons"] = "HighPack", ["qualityMeshOption"] = "150K Triangle", ["material"] = "PBR", ["hdTexture"] = true },
+            },
+            new Case
+            {
+                Name = "shovel", Type = OutputTypes.Model3D, Model = "model_rodin-hyper3d-v2-5-text-to-3d", Cap = 90,
+                Prompt = "A worn shovel with a long wooden handle and a rusty iron blade, highly detailed game prop",
+                Inputs = new JObject { ["material"] = "PBR", ["hdTexture"] = true },
+            },
+            new Case
+            {
+                Name = "coins", Type = OutputTypes.Model3D, Model = "model_rodin-hyper3d-v2-5-text-to-3d", Cap = 90,
+                Prompt = "A low scattered pile of shiny gold coins with a few red and green gems, highly detailed game prop",
+                Inputs = new JObject { ["material"] = "PBR", ["hdTexture"] = true },
+            },
         };
 
         const string Ledger = "tests/live/LEDGER.md";
@@ -105,10 +143,27 @@ namespace ScenarioDev
             }
             finally
             {
-                File.WriteAllLines(Path.Combine(Out, "render.txt"), Lines);
-                EditorApplication.Exit(code);
+                Finish("render.txt", code);
             }
         };
+
+        /// <summary>Writes the run's log, then exits the batch editor even when the log cannot be written.</summary>
+        static void Finish(string log, int code)
+        {
+            try
+            {
+                Directory.CreateDirectory(Out);
+                File.WriteAllLines(Path.Combine(Out, log), Lines);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError("STORY could not write " + log + ": " + e.Message);
+            }
+            finally
+            {
+                EditorApplication.Exit(code);
+            }
+        }
 
         static JObject LoadState() => File.Exists(StatePath) ? Json.ParseObject(File.ReadAllText(StatePath)) ?? new JObject() : new JObject();
 
@@ -144,6 +199,12 @@ namespace ScenarioDev
                         Log($"skip {c.Name}: done in an earlier run");
                         continue;
                     }
+                    if (state[c.Name]?["job"] != null)
+                    {
+                        Log($"FAIL {c.Name}: job {state[c.Name]["job"]} was sent in an earlier run and did not finish here; import it from Jobs, never send it again");
+                        failures++;
+                        break;
+                    }
                     var missing = c.From.Values.Where(step => state[step]?["asset"] == null).ToList();
                     if (missing.Count > 0)
                     {
@@ -151,21 +212,32 @@ namespace ScenarioDev
                         failures++;
                         break;
                     }
-                    var (row, quoted, problems) = await Send(c, state);
+                    var (row, quoted, problems) = await Send(c, state, job =>
+                    {
+                        // Recorded as soon as Scenario has the job, before the wait and the import.
+                        state[c.Name] = new JObject { ["job"] = job };
+                        File.WriteAllText(StatePath, state.ToString());
+                    });
                     var ok = problems.Count == 0;
                     if (ok)
                     {
                         var file = row.Files.FirstOrDefault(f => f.EndsWith(".glb", StringComparison.OrdinalIgnoreCase)) ?? row.Files.FirstOrDefault() ?? "";
+                        // The placement counts only once the scene holding it is saved.
+                        var saved = EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(), ScenePath);
                         state[c.Name] = new JObject
                         {
                             ["job"] = row.JobId,
                             ["asset"] = Provenance.Read(file)?.AssetId is string id && id.Length > 0 ? id : row.AssetIds.FirstOrDefault() ?? "",
                             ["file"] = file,
                             ["files"] = new JArray(row.Files),
-                            ["placed"] = new JArray(row.Placed),
+                            ["placed"] = saved ? new JArray(row.Placed) : new JArray(),
                         };
                         File.WriteAllText(StatePath, state.ToString());
-                        EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(), ScenePath);
+                        if (!saved)
+                        {
+                            problems.Add($"{ScenePath} could not be saved: place {Path.GetFileName(file)} again, it is imported");
+                            ok = false;
+                        }
                     }
                     var charged = row?.ChargedCu.HasValue == true ? row.ChargedCu.Value.ToString() : "?";
                     var files = row != null ? string.Join(", ", row.Files.Select(Path.GetFileName)) : "";
@@ -198,14 +270,13 @@ namespace ScenarioDev
                     section.AddRange(ledger);
                     File.AppendAllText(Ledger, string.Join("\n", section) + "\n");
                 }
-                File.WriteAllLines(Path.Combine(Out, "paid.txt"), Lines);
                 Log($"STORY done failures={failures}");
-                EditorApplication.Exit(failures > 0 ? 1 : 0);
+                Finish("paid.txt", failures > 0 ? 1 : 0);
             }
         }
 
         /// <summary>The window's path: the form from the live schema, its presets, a price check, one send, then the import and placement.</summary>
-        static async Task<(JobRow row, double quoted, List<string> problems)> Send(Case c, JObject state)
+        static async Task<(JobRow row, double quoted, List<string> problems)> Send(Case c, JObject state, Action<string> sent)
         {
             var schema = await S.Schema(c.Model);
             if (!schema.Ok) return (null, 0, new List<string> { "schema: " + schema.Error.Message });
@@ -229,6 +300,7 @@ namespace ScenarioDev
             if (!started.Ok)
                 return (S.Ledger.Jobs.LastOrDefault(), quote.Value.Cu, new List<string> { (started.Error.Ambiguous ? "UNKNOWN outcome, check Jobs: " : "not sent: ") + started.Error.Message });
             var row = started.Value;
+            sent(row.JobId);
             Log($"sent {c.Name}: {request.ModelName} job {row.JobId} quoted {quote.Value.Cu}");
             var start = Json.Now();
             while (!(row.IsFinal && (row.State != JobState.Success || row.Imported || row.Error.StartsWith("Import failed"))) && Json.Now() - start < 1500)
@@ -266,63 +338,238 @@ namespace ScenarioDev
                 Object.DestroyImmediate(go);
             }
 
-            // The finished scene: only the sand, the cheering hunter and the chest, at golden hour under the generated sky.
-            var keep = new HashSet<GameObject>();
-            var sand = GameObject.Find("Sand");
-            keep.Add(sand);
-            var cheerPath = (string)state["cheer"]?["placed"]?.FirstOrDefault();
-            var hunter = cheerPath != null ? Placer.FindByPath(cheerPath) : null;
-            if (hunter == null) throw new Exception("no placed cheer");
-            keep.Add(hunter);
-            hunter.transform.SetPositionAndRotation(Vector3.zero, Quaternion.Euler(0, 200, 0));
-            World.Ground(hunter, 0, sand);
-            var chestPath = (string)state["chest"]?["placed"]?.FirstOrDefault();
-            var chest = chestPath != null ? Placer.FindByPath(chestPath) : null;
-            if (chest == null) throw new Exception("no placed chest");
-            keep.Add(chest);
-            chest.transform.SetPositionAndRotation(new Vector3(1.1f, 0, -0.6f), Quaternion.Euler(0, 230, 0));
-            SceneActions.SetHeight(chest, 0.7f);
-            World.Ground(chest, 0, sand);
-            foreach (var root in EditorSceneManager.GetActiveScene().GetRootGameObjects())
-                if (!keep.Contains(root) && root.GetComponent<Light>() == null) root.SetActive(false);
-            var mood = SceneActions.SetMood("golden_hour");
-            Log("mood: " + mood.Message);
+            Hero(state);
+            Log("rendered " + string.Join(", ", Directory.GetFiles(Out, "*.png").Select(Path.GetFileName)));
+        }
 
-            var animator = hunter.GetComponentInChildren<Animator>(true);
+        /// <summary>The pose to show in the hero shot: STORY_POSE as "cheer:0.15" or "dig:0.8" (step and point in its clip).</summary>
+        static (string step, float time) HeroPose()
+        {
+            var parts = (Environment.GetEnvironmentVariable("STORY_POSE") ?? "cheer:0.15").Split(':');
+            return (parts[0], parts.Length > 1 && float.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var t) ? t : 0.15f);
+        }
+
+        /// <summary>Contact sheet frames to choose the hero pose: the cheer and the dig, every tenth of their clips.</summary>
+        public static void Poses() => EditorApplication.delayCall += () =>
+        {
+            var code = 0;
+            try
+            {
+                var state = LoadState();
+                EditorSceneManager.OpenScene(ScenePath);
+                foreach (var step in new[] { "cheer", "dig" })
+                {
+                    var go = Placed(state, step);
+                    ShowOnly(go);
+                    go.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+                    var (animator, clip) = ClipOf(go);
+                    var baked = Media.Skins(go);
+                    try
+                    {
+                        for (var i = 0; i < 10; i++)
+                        {
+                            var t = 0.05f + i * 0.1f;
+                            clip.SampleAnimation(animator.gameObject, clip.length * t);
+                            Media.Bake(baked);
+                            var bounds = Baked(baked);
+                            Write(Media.Frame(bounds.center, bounds.extents.magnitude, 1.0f), $"pose-{step}-{t:0.00}.png");
+                        }
+                    }
+                    finally
+                    {
+                        Media.Unbake(baked);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                code = 1;
+                Log("FAIL poses " + e);
+            }
+            finally
+            {
+                Finish("poses.txt", code);
+            }
+        };
+
+        static GameObject Placed(JObject state, string step)
+        {
+            var path = (string)state[step]?["placed"]?.FirstOrDefault();
+            return (path != null ? Placer.FindByPath(path) : null) ?? throw new Exception("no placed " + step);
+        }
+
+        static void ShowOnly(params GameObject[] keep)
+        {
+            foreach (var root in EditorSceneManager.GetActiveScene().GetRootGameObjects())
+                root.SetActive(keep.Contains(root) || root.GetComponent<Light>() != null);
+        }
+
+        static (Animator animator, AnimationClip clip) ClipOf(GameObject go)
+        {
+            var animator = go.GetComponentInChildren<Animator>(true);
             var controller = animator != null ? animator.runtimeAnimatorController as AnimatorController : null;
             var clip = controller != null ? controller.animationClips.FirstOrDefault(a => a.length > 0.1f) : null;
+            if (clip == null) throw new Exception("no clip on " + go.name);
+            return (animator, clip);
+        }
+
+        static Bounds Baked(List<(SkinnedMeshRenderer skin, GameObject proxy, Mesh mesh)> baked)
+        {
+            var renderers = baked.Select(b => b.proxy.GetComponent<MeshRenderer>()).ToList();
+            var bounds = renderers[0].bounds;
+            foreach (var r in renderers.Skip(1)) bounds.Encapsulate(r.bounds);
+            return bounds;
+        }
+
+        // The finished scene: the hunter cheering on a dune crest at golden hour, the chest he dug up half buried
+        // beside him with its spilled coins and his shovel, under the generated sky of dunes. The sky's sun sits on
+        // the horizon at +X (a panoramic skybox shows the middle of its image there), a little right of the frame's
+        // middle; the light comes from a little nearer the camera so his face catches it. The camera frames the
+        // bounds of everything so nothing is cut.
+        static void Hero(JObject state)
+        {
+            var (step, time) = HeroPose();
+            const float look = 68, sunYaw = 90, lightYaw = 130;
+            var forward = Quaternion.Euler(0, look, 0) * Vector3.forward;
+            var right = Quaternion.Euler(0, look + 90, 0) * Vector3.forward;
+            var hunter = Placed(state, step);
+            var chest = Placed(state, state["rich-chest"] != null ? "rich-chest" : "chest");
+            var props = new[] { "shovel", "coins" }.Where(p => state[p] != null).ToDictionary(p => p, p => Placed(state, p));
+            ShowOnly(props.Values.Append(hunter).Append(chest).ToArray());
+            var dunes = Dunes(state);
+            var urp = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;
+            var shadowDistance = urp != null ? urp.shadowDistance : 0;
+            if (urp != null) urp.shadowDistance = 30;
+            var (animator, clip) = ClipOf(hunter);
             var baked = Media.Skins(hunter);
             try
             {
-                if (clip != null) clip.SampleAnimation(animator.gameObject, clip.length * 0.45f);
+                // glTF models face +Z: he faces the camera, turned toward the sun.
+                hunter.transform.SetPositionAndRotation(Vector3.zero, Quaternion.Euler(0, look + 180 - 48, 0));
+                clip.SampleAnimation(animator.gameObject, clip.length * time);
                 Media.Bake(baked);
-                var focus = Media.BoundsOf(hunter).center;
-                Write(Shot(focus + new Vector3(-1.4f, 0.1f, -3.4f), focus + new Vector3(0.35f, -0.15f, 0), 1600, 900, 40), "scene.png");
+                var feet = Baked(baked);
+                hunter.transform.position += new Vector3(-feet.center.x, GroundAt(dunes, Vector3.zero) - feet.min.y - 0.02f, -feet.center.z);
+                Media.Bake(baked);
+
+                Set(chest, dunes, right * 1.35f - forward * 0.55f, Quaternion.Euler(3, look + 180 + 25, -2), height: 0.72f, sink: 0.14f);
+                if (props.TryGetValue("coins", out var coins))
+                    Set(coins, dunes, right * 1.95f - forward * 1.15f, Quaternion.Euler(0, look + 40, 0), width: 0.7f, sink: 0.03f);
+                if (props.TryGetValue("shovel", out var shovel))
+                    Set(shovel, dunes, -right * 0.8f + forward * 0.35f, Quaternion.AngleAxis(180 - 14, forward) * Quaternion.Euler(0, look + 60, 0), height: 1.15f, sink: 0.38f);
+
+                var mood = Atmosphere.Apply(new Atmosphere.Spec { Preset = "golden_hour", SunElevation = 11, SunAzimuth = lightYaw + 180, Temperature = 0, Exposure = 0, Saturation = 0, Contrast = 14, Bloom = 0.5f });
+                DynamicGI.UpdateEnvironment();
+                Log($"mood: {string.Join(" ", mood.Notes)} sun in the sky at {sunYaw}, light from {lightYaw}");
+                var subject = Baked(baked);
+                subject.Encapsulate(World.BoundsOf(chest));
+                foreach (var prop in props.Values) subject.Encapsulate(World.BoundsOf(prop));
+                Write(Shot(subject, dunes, forward), "scene.png");
             }
             finally
             {
                 Media.Unbake(baked);
+                if (urp != null) urp.shadowDistance = shadowDistance;
+                Object.DestroyImmediate(dunes.gameObject);
             }
-            Log("rendered " + string.Join(", ", Directory.GetFiles(Out, "*.png").Select(Path.GetFileName)));
         }
 
-        static Texture2D Shot(Vector3 from, Vector3 at, int width, int height, float fov)
+        static float GroundAt(Terrain dunes, Vector3 point) => dunes.SampleHeight(point) + dunes.transform.position.y;
+
+        /// <summary>Places a prop on the dunes at this height (or footprint width), its base sunk into the sand.</summary>
+        static void Set(GameObject go, Terrain dunes, Vector3 at, Quaternion rotation, float height = 0, float width = 0, float sink = 0)
         {
+            go.transform.SetPositionAndRotation(at, rotation);
+            if (height > 0) World.FitHeight(go, height);
+            else
+            {
+                var size = World.BoundsOf(go).size;
+                go.transform.localScale *= width / Mathf.Max(size.x, size.z, 1e-4f);
+            }
+            var bounds = World.BoundsOf(go);
+            go.transform.position += new Vector3(at.x - bounds.center.x, GroundAt(dunes, bounds.center) - bounds.min.y - sink, at.z - bounds.center.z);
+        }
+
+        /// <summary>A broad dune crest in the generated sand, falling away so the sky's own dunes and sun meet the horizon.</summary>
+        static Terrain Dunes(JObject state)
+        {
+            var files = (state["clean-sand"] ?? state["sand"])?["files"]?.Select(f => (string)f).ToList() ?? new List<string>();
+            Texture2D Map(string kind) => AssetDatabase.LoadAssetAtPath<Texture2D>(files.FirstOrDefault(f => f.EndsWith($"-{kind}.png")) ?? "");
+            const int resolution = 1025;
+            const float size = 400, height = 80, top = 60;
+            var data = new TerrainData { heightmapResolution = resolution, size = new Vector3(size, height, size) };
+            var heights = new float[resolution, resolution];
+            for (var z = 0; z < resolution; z++)
+            for (var x = 0; x < resolution; x++)
+                heights[z, x] = Mathf.Clamp01((Dune((x / (resolution - 1f) - 0.5f) * size, (z / (resolution - 1f) - 0.5f) * size) + top) / height);
+            data.SetHeights(0, 0, heights);
+            data.terrainLayers = new[]
+            {
+                new TerrainLayer { diffuseTexture = Map("albedo"), normalMapTexture = Map("normal"), tileSize = new Vector2(2.2f, 2.2f), smoothness = 0.08f, normalScale = 1.4f },
+            };
+            var go = Terrain.CreateTerrainGameObject(data);
+            go.name = "Story Dunes";
+            go.transform.position = new Vector3(-size / 2, -top - Dune(0, 0), -size / 2);
+            var terrain = go.GetComponent<Terrain>();
+            terrain.heightmapPixelError = 1;
+            terrain.basemapDistance = 2000;
+            terrain.materialTemplate = GraphicsSettings.currentRenderPipeline?.defaultTerrainMaterial;
+            terrain.Flush();
+            return terrain;
+        }
+
+        static float Dune(float x, float z)
+        {
+            var r = Mathf.Sqrt(x * x + z * z);
+            // Away from the sun (+X), dunes rise behind him; toward it the crest falls away to the sky's horizon.
+            var away = r > 1e-3f ? Mathf.InverseLerp(0.8f, 0.35f, x / r) : 0;
+            var crest = -0.0009f * r * r * (1 - 0.92f * away);
+            var dunes = away * Mathf.InverseLerp(30, 90, r) * (Mathf.Pow(1 - Mathf.Abs(Mathf.Sin((x * 0.5f - z * 0.85f + Mathf.PerlinNoise(x * 0.01f, z * 0.01f) * 40) * 0.035f)), 2) * 9f + Mathf.PerlinNoise(x * 0.012f + 5, z * 0.012f + 9) * 5f);
+            var along = x * 0.8f + z * 0.6f;
+            var warp = Mathf.PerlinNoise(x * 0.02f + 3, z * 0.02f + 7) * 12;
+            var ridges = (1 - Mathf.Abs(Mathf.Sin((along + warp) * 0.11f))) * 0.45f * Mathf.InverseLerp(4, 25, r);
+            var swell = (Mathf.PerlinNoise(x * 0.04f + 1, z * 0.04f + 2) - 0.5f) * 0.6f;
+            return crest + ridges + swell + dunes;
+        }
+
+        /// <summary>
+        /// A 2400 by 1350 frame of the subject, rendered at twice the size with the URP post-processing on and scaled
+        /// down. The camera, low and looking along `forward`, backs away until the subject's corners sit inside the
+        /// frame's margins, the subject on the left third.
+        /// </summary>
+        static Texture2D Shot(Bounds subject, Terrain dunes, Vector3 forward)
+        {
+            const int width = 2400, height = 1350, scale = 2;
+            const float fov = 34, eye = 0.5f, shift = 0.17f;
             var holder = new GameObject("Story Camera");
-            var rt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { antiAliasing = 8 };
+            var rt = new RenderTexture(width * scale, height * scale, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { antiAliasing = 8 };
+            var small = new RenderTexture(width, height, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
             try
             {
                 var camera = holder.AddComponent<Camera>();
+                var data = camera.GetUniversalAdditionalCameraData();
+                data.renderPostProcessing = true;
+                data.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
+                data.antialiasingQuality = AntialiasingQuality.High;
                 camera.clearFlags = CameraClearFlags.Skybox;
-                camera.fieldOfView = fov;
-                camera.transform.position = from;
-                camera.transform.LookAt(at);
                 camera.nearClipPlane = 0.05f;
-                camera.farClipPlane = 1000;
+                camera.farClipPlane = 2000;
+                camera.aspect = (float)width / height;
+                camera.fieldOfView = fov;
+                for (var distance = 3f; distance < 30; distance += 0.1f)
+                {
+                    var position = subject.center - forward * distance;
+                    position.y = GroundAt(dunes, position) + eye;
+                    camera.transform.position = position;
+                    camera.transform.LookAt(new Vector3(subject.center.x, subject.min.y + subject.size.y * 0.6f, subject.center.z));
+                    camera.transform.position += camera.transform.right * (distance * Mathf.Tan(Camera.VerticalToHorizontalFieldOfView(fov, camera.aspect) * 0.5f * Mathf.Deg2Rad) * shift * 2);
+                    if (Inside(camera, subject, 0.05f)) break;
+                }
                 camera.targetTexture = rt;
                 camera.Render();
+                Graphics.Blit(rt, small);
                 var previous = RenderTexture.active;
-                RenderTexture.active = rt;
+                RenderTexture.active = small;
                 var frame = new Texture2D(width, height, TextureFormat.RGB24, false);
                 frame.ReadPixels(new Rect(0, 0, width, height), 0, 0);
                 frame.Apply();
@@ -333,8 +580,20 @@ namespace ScenarioDev
             finally
             {
                 Object.DestroyImmediate(rt);
+                Object.DestroyImmediate(small);
                 Object.DestroyImmediate(holder);
             }
+        }
+
+        static bool Inside(Camera camera, Bounds b, float margin)
+        {
+            for (var i = 0; i < 8; i++)
+            {
+                var corner = new Vector3((i & 1) == 0 ? b.min.x : b.max.x, (i & 2) == 0 ? b.min.y : b.max.y, (i & 4) == 0 ? b.min.z : b.max.z);
+                var v = camera.WorldToViewportPoint(corner);
+                if (v.z <= 0 || v.x < margin || v.x > 1 - margin || v.y < margin || v.y > 1 - margin) return false;
+            }
+            return true;
         }
 
         static void Write(Texture2D frame, string name)

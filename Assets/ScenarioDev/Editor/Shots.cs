@@ -73,8 +73,8 @@ namespace ScenarioDev
             Add("create-image-prompt", () => _window.Create.SetPrompt("An old treasure map on torn parchment, hand-drawn trails and a red X, game item"), min: 3);
             Add("create-suggest", () => Click(Q("suggest")), min: 6, max: 40);
             Add("create-model3d", () => { _window.Create.SelectType("model3d"); _window.Create.SelectModel("model_meshy-7-1-txt23d"); PromptLater(StoryPrompt("hunter", "A stylized treasure hunter, full body, game character")); }, min: 8);
-            Add("create-material", () => { _window.Create.SelectType("material"); PromptLater(StoryPrompt("sand", "Fine desert sand with small pebbles")); }, min: 6);
-            Add("create-skybox", () => { _window.Create.SelectType("skybox"); PromptLater(StoryPrompt("sky", "A desert canyon at golden hour")); }, min: 6);
+            Add("create-material", () => { _window.Create.SelectType("material"); PromptLater(StoryPrompt("clean-sand", "Fine clean golden desert sand with soft wind ripples")); }, min: 6);
+            Add("create-skybox", () => { _window.Create.SelectType("skybox"); PromptLater(StoryPrompt("dunes-sky", "Endless golden sand dunes rolling to the horizon at golden hour")); }, min: 6);
             Add("create-video", () => _window.Create.SelectType("video"), min: 4);
             Add("create-audio", () => _window.Create.SelectType("audio"), min: 4);
             Add("create-all", () => _window.Create.SelectType("all"), min: 4);
@@ -216,10 +216,14 @@ namespace ScenarioDev
             _out = Environment.GetEnvironmentVariable("SCENARIO_SHOTS_DIR");
             if (string.IsNullOrEmpty(_out)) _out = "Library/ScenarioShots";
             Directory.CreateDirectory(_out);
+            // SCENARIO_SHOTS_ONLY: a comma-separated list of shot names, to retake only those.
+            var only = (Environment.GetEnvironmentVariable("SCENARIO_SHOTS_ONLY") ?? "").Split(',').Select(n => n.Trim()).Where(n => n.Length > 0).ToList();
+            if (only.Count > 0) Steps.RemoveAll(step => !only.Contains(step.Name));
             // Switching skin inside a batch editor stalls it: the launcher sets the skin before launch.
             _theme = EditorGUIUtility.isProSkin ? "dark" : "light";
             Debug.Log($"SHOTS begin theme={_theme} pro={EditorGUIUtility.isProSkin} steps={Steps.Count}");
             OpenWindow();
+            ShowWorkspaceName();
             _index = 0;
             if (_theme == "light") while (_index < Steps.Count && !Steps[_index].BothThemes) _index++;
             _setupDone = false;
