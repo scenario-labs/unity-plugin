@@ -171,3 +171,14 @@ Total 8 CU.
 | Case | Model or workflow | Job | Quoted CU | Charged CU | Result |
 |---|---|---|---|---|---|
 | story chest | `model_rodin-hyper3d-v2-5-text-to-3d` | `job_ZUywsuVPgfVSXKnr4PZKZzx4` | 60 | 60 | ok: an-open-wooden-treasure-chest-yrqj27.glb |
+
+## 2026-11-17 17:37 handbook story run (pass)
+
+| Case | Model or workflow | Job | Quoted CU | Charged CU | Result |
+|---|---|---|---|---|---|
+| story dunes-sky | `model_scenario-skybox-gpt` | `job_ybhBr31cToB76iF4W84mNhpi` | 33.75 | 32 | ok: endless-golden-sand-dunes-rolling-to-the-3ao4cf-panorama.png |
+| story dunes-sky-4x | `model_sc-upscale-flux-skybox` | `job_Ae4xfW4fskWPN8HnxUmMV6DL` | 86.75 | 85 | ok: golden-sand-dunes-and-a-dramatic-golden-5fnmzv.png |
+| story clean-sand | `model_patina-material` | `job_rUi4PRnyF4RRHTARszTrdix5` | 18.75 | 17 | ok: fine-clean-golden-desert-sand-with-soft-68cbem-base.png, fine-clean-golden-desert-sand-with-soft-uh6m5x-albedo.png, fine-clean-golden-desert-sand-with-soft-xzof4m-normal.png, fine-clean-golden-desert-sand-with-soft-k3j76s-roughness.png, fine-clean-golden-desert-sand-with-soft-eqb6ex-metallic.png, fine-clean-golden-desert-sand-with-soft-o9urxb-height.png |
+| story rich-chest | `model_rodin-hyper3d-v2-5-text-to-3d` | `job_bYYrheqXeKn7RdnYXkyTjDak` | 60 | 60 | ok: an-open-ornate-wooden-treasure-chest-yw4k6h.glb |
+| story shovel | `model_rodin-hyper3d-v2-5-text-to-3d` | `job_j5Ti29xJgrXqEDjSvwFLHx3W` | 60 | 60 | ok: a-worn-shovel-with-a-long-wooden-handle-4rmgmk.glb |
+| story coins | `model_rodin-hyper3d-v2-5-text-to-3d` | `job_aRvt4ftNQnKYCbXgq4kaLGWN` | 60 | 60 | ok: a-low-scattered-pile-of-shiny-gold-coins-r4r7xt.glb |

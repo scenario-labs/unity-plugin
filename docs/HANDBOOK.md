@@ -2,7 +2,7 @@
 
 Scenario for Unity adds a window to the Unity Editor that runs Scenario's models on your project: images, video, 3D models, character animation, audio, PBR materials and skyboxes. Each result lands as a working Unity asset, a prefab on the ground, a material on your mesh, a character that moves in Play mode, the scene's sky, and every request shows its price before anything is spent. You need Unity 6.0 or later and a Scenario account.
 
-![A treasure hunter cheers beside an open chest of gold coins on desert sand, under red rock arches at golden hour: every model, motion, material and the sky made with the plugin, rendered by Unity](images/hero.jpg)
+![A treasure hunter cheers with both arms up on a sand dune at sunset, beside the open chest he dug up, its spilled gold coins and his shovel: every model, motion, material and the sky made with the plugin, rendered by Unity](images/hero.jpg)
 
 > Every picture in this guide is a real Scenario result, imported by the plugin and rendered by Unity.
 
@@ -33,7 +33,7 @@ The same steps are on each result card (**Next**), in a right-click in the Proje
 
 ## The example
 
-The five steps below follow one character: a treasure hunter, made from a prompt, given a new outfit, rigged, animated three ways, and set in a desert scene with a chest of gold, sand and a canyon sky, the picture at the top of this page.
+The five steps below follow one character: a treasure hunter, made from a prompt, given a new outfit, rigged, animated three ways, and set on a dune at sunset with the chest he dug up, the picture at the top of this page.
 
 Each step pairs what you do in Unity with a Scenario model. Every picture is a real run with the plugin, at the models and prices the window showed.
 
@@ -120,16 +120,16 @@ Select a rigged character with a walk and choose **Make playable** in the panel.
 
 **When to use it:** the scene needs props, materials, a sky, sound or a mood.
 
-The hunter's scene took three more generations and one free preset:
+The hunter's scene took six more generations and one free preset:
 
-- **A chest**: Rodin Gen-2.5 from "An open wooden treasure chest overflowing with gold coins, iron bands, stylized game prop".
-- **The sand**: with the ground plane selected, **Material** and PATINA Material from "Fine desert sand with small pebbles and soft wind ripples". The material lands on the selected mesh, built for the project's render pipeline.
-- **The sky**: **Skybox** and Scenario Skybox GPT from "A desert canyon at golden hour, red rock arches, warm hazy sky, distant dunes". It becomes the scene's sky.
+- **The props**: Rodin Gen-2.5, three times. The chest from "An open ornate wooden treasure chest overflowing with shiny gold coins, jewels and pearls, brass corners and iron bands, weathered wood, highly detailed game prop", at the High tier with 4K textures (**More settings**); the shovel and the spilled coins from prompts of their own.
+- **The sand**: **Material** and PATINA Material from "Fine clean golden desert sand with soft wind ripples, no stones". With a mesh selected, the material lands on it, built for the project's render pipeline; here it covers the dunes, a Unity terrain.
+- **The sky**: **Skybox** and Scenario Skybox GPT from "Endless golden sand dunes rolling to the horizon at golden hour, the sun low and glowing just above the horizon, a dramatic sky of long luminous clouds, faint distant mesas in the warm haze". It becomes the scene's sky. Scenario Skybox Upscale then made it four times larger, 8192 pixels wide, so it stays sharp behind a close camera.
 - **The light**: **Light and mood > Golden hour**, which sets the sun, fog, ambient light and, in URP, post-processing. It is free and runs at once.
 
 | Material | Skybox |
 | --- | --- |
-| ![Create, Material: PATINA Material and the sand prompt, Generate · 19 CU](images/screens/create-material-light.png) | ![Create, Skybox: Scenario Skybox GPT and the canyon prompt, Generate · 34 CU](images/screens/create-skybox-light.png) |
+| ![Create, Material: PATINA Material and the sand prompt, Generate · 19 CU](images/screens/create-material-light.png) | ![Create, Skybox: Scenario Skybox GPT and the dunes prompt, Generate · 34 CU](images/screens/create-skybox-light.png) |
 
 Also in the panel and in Create:
 
@@ -191,7 +191,7 @@ This package replaces the earlier Scenario plugin for Unity (`com.scenarioinc.sc
 - **Use an API key instead**: the key and the secret from the Scenario web app. An API key belongs to one project, so there is no picker.
 - **Sign in on another device** is for a browser that cannot reach Unity, such as a remote desktop. It is not available yet: until Scenario turns it on for Unity, sign in with the browser or an API key.
 
-Your sign-in is kept in the macOS Keychain or the Windows Credential Manager, never in the Unity project, so nothing reaches git. Sign out from the account menu in the header or in **Settings**.
+Your sign-in is kept in the macOS Keychain or the Windows Credential Manager. Where that store is missing or refuses it (on Linux, for example), it goes to `Scenario/Unity/account.json` in your user configuration folder instead. Either way it stays out of the Unity project, so nothing reaches git. Sign out from the account menu in the header or in **Settings**.
 
 ## The window, top to bottom
 
