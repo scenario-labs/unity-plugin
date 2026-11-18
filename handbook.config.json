@@ -13,12 +13,12 @@
   "analytics": "/page.js",
   "cta": [
     [
-      "Install",
-      "#install"
+      "Download for Unity 6",
+      "/download/latest"
     ],
     [
-      "Download",
-      "/download/latest"
+      "Install from git URL",
+      "#install"
     ]
   ],
   "nav": [
@@ -46,6 +46,7 @@
     ]
   ],
   "downloads": [
+    "The git URL, for **Install package from git URL** as described in [Install](#install): `https://github.com/scenario-labs/unity-plugin.git?path=/Packages/com.scenario.unity`. Add `#unity-plugin-v{version}` to stay on this version.",
     "The package: `com.scenario.unity-{version}.tgz` from [unity.scenario.com/download/latest](https://unity.scenario.com/download/latest), added with **Install package from tarball** as described in [Install](#install). Each release lists its SHA-256 in `SHA256SUMS`."
   ],
   "trademarks": "Unity is a trademark of Unity Technologies. This project is not affiliated with or endorsed by Unity Technologies.",
