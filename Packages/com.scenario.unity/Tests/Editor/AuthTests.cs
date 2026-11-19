@@ -209,6 +209,9 @@ namespace Scenario.Editor.Tests
                 Env(OAuthApp.IssuerVariable, "https://id.example.test"),
                 Env(OAuthApp.ClientIdVariable, "unity_dev_client"),
                 Env(OAuthApp.IssuerVariable, "http://id.example.test", OAuthApp.ClientIdVariable, "unity_dev_client"),
+                // The endpoints are paths under the issuer: a query would swallow them.
+                Env(OAuthApp.IssuerVariable, "https://id.example.test?tenant=1", OAuthApp.ClientIdVariable, "unity_dev_client"),
+                Env(OAuthApp.IssuerVariable, "https://id.example.test:port", OAuthApp.ClientIdVariable, "unity_dev_client"),
             };
             foreach (var result in wrong.Select(env => OAuthApp.Select(env)))
             {
@@ -375,15 +378,27 @@ namespace Scenario.Editor.Tests
         static DeviceCode Code(double expiresAt = double.MaxValue)
             => new DeviceCode { Code = "dc_1", UserCode = "ABCD-EFGH", VerificationUri = "https://id.example.test/device", Interval = 5, ExpiresAt = expiresAt };
 
+        const string AccessTokenKey = "Scenario.AccessToken";
+        const string AccessExpiryKey = "Scenario.AccessExpiry";
         string _settings;
+        string _accessToken;
+        float _accessExpiry;
 
         [SetUp]
-        public void SetUp() => _settings = EditorJsonUtility.ToJson(ScenarioUserSettings.instance);
+        public void SetUp()
+        {
+            _settings = EditorJsonUtility.ToJson(ScenarioUserSettings.instance);
+            // A sign-in keeps its access token in the editor session: the fake one must not outlive the test.
+            _accessToken = SessionState.GetString(AccessTokenKey, "");
+            _accessExpiry = SessionState.GetFloat(AccessExpiryKey, 0);
+        }
 
         [TearDown]
         public void TearDown()
         {
             ScenarioService.ResetForTests();
+            SessionState.SetString(AccessTokenKey, _accessToken);
+            SessionState.SetFloat(AccessExpiryKey, _accessExpiry);
             EditorJsonUtility.FromJsonOverwrite(_settings, ScenarioUserSettings.instance);
             ScenarioUserSettings.instance.Save();
         }
@@ -418,6 +433,14 @@ namespace Scenario.Editor.Tests
             var result = Run.Sync(new OAuthClient(server, DevApp).StartDevice(0));
             Assert.IsFalse(result.Ok);
             StringAssert.Contains("HTTPS", result.Error.Message);
+        }
+
+        [Test]
+        public void StartOpensThePageWhenTheFilledInOneIsMalformed()
+        {
+            var server = new FakeApi { Other = _ => new HttpReply { Status = 200, Body = DeviceReply.Replace("https://id.example.test/device?", "https://id.example.test:port/device?") } };
+            var device = Run.Sync(new OAuthClient(server, DevApp).StartDevice(0)).Value;
+            Assert.AreEqual("https://id.example.test/device", device.PageToOpen);
         }
 
         [Test]
@@ -495,6 +518,42 @@ namespace Scenario.Editor.Tests
             var late = Run.Sync(client.PollDevice(Code(expiresAt: 100), () => 200));
             Assert.AreEqual(ErrorKind.Timeout, late.Error.Kind);
             Assert.AreEqual(sent, server.Requests.Count, "an expired code is not polled");
+        }
+
+        [Test]
+        public void PollStopsWhenTheCodeExpiresDuringTheWait()
+        {
+            var server = new FakeApi { Other = _ => OAuthError("authorization_pending") };
+            // Valid when the wait starts, expired when it ends.
+            var reads = 0;
+            var result = Run.Sync(new OAuthClient(server, DevApp).PollDevice(Code(expiresAt: 3), () => reads++ == 0 ? 0 : 10));
+            Assert.AreEqual(ErrorKind.Timeout, result.Error.Kind);
+            Assert.AreEqual(0, server.Requests.Count, "an expired code is not polled");
+        }
+
+        [Test]
+        public void PollWaitsLongerAfterATimeout()
+        {
+            // RFC 8628, 3.5: a connection timeout lowers the polling frequency.
+            var replies = new Queue<HttpReply>(new[] { FakeApi.Fail("timeout"), FakeApi.Fail("timeout"), new HttpReply { Status = 200, Body = TokensReply } });
+            var server = new FakeApi { Other = _ => replies.Dequeue() };
+            Assert.AreEqual("at1", Run.Sync(new OAuthClient(server, DevApp).PollDevice(Code(), () => 0)).Value.AccessToken);
+            CollectionAssert.AreEqual(new[] { 5.0, 10.0, 20.0 }, server.Delays);
+        }
+
+        [Test]
+        public void ASignInWithoutARefreshToken_IsRefused()
+        {
+            // It would end with the access token, and could not be saved for the next session.
+            var server = new FakeApi
+            {
+                Other = request => request.Url == DevApp.DeviceAuthorizationEndpoint
+                    ? new HttpReply { Status = 200, Body = DeviceReply }
+                    : new HttpReply { Status = 200, Body = "{\"access_token\":\"at1\",\"expires_in\":3600}" },
+            };
+            var result = Run.Sync(OAuthSignIn.RunOnDevice(new OAuthClient(server, DevApp), _ => { }));
+            Assert.IsFalse(result.Ok);
+            StringAssert.Contains("cannot be kept", result.Error.Message);
         }
 
         [Test]

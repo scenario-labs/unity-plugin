@@ -187,6 +187,30 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
+        public void ModelsFind_Recommended_KeepsTheOutputType()
+        {
+            Assert.IsTrue(Run.Sync(_s.SignInWithApiKey("key_test", "secret_test")), _s.SignInError);
+            _s.Catalog.Models = new List<ModelInfo>
+            {
+                new ModelInfo { Id = "model_cartwheel-text-to-motion", Name = "Text to motion", Capabilities = new List<string> { "txt23d" } },
+                new ModelInfo { Id = "model_uthana-video-to-motion-2.1", Name = "Video to motion", Capabilities = new List<string> { "video23d" } },
+            };
+            _s.Catalog.FetchedAt = Json.Now();
+            _server.Routes["GET /recommendations/models"] = (args, i) => FakeApi.Json(new JObject { ["models"] = new JArray() });
+            string[] Ranked(JObject result) => JObject.Parse(TextOf(result))["ranked"].Select(m => (string)m["model_id"]).ToArray();
+
+            // Motions with a capability: the motion quick picks that have it, not every txt23d model.
+            CollectionAssert.AreEqual(new[] { "model_cartwheel-text-to-motion" },
+                Ranked(CallTool("models_find", new JObject { ["recommended"] = true, ["output_type"] = "motion", ["capability"] = "txt23d" })));
+            Assert.AreEqual(0, _server.Count("GET /recommendations/models"));
+
+            // Every output type: no capability filter.
+            CallTool("models_find", new JObject { ["recommended"] = true, ["output_type"] = "all" });
+            Assert.AreEqual(1, _server.Count("GET /recommendations/models"));
+            Assert.IsNull(_server.Last("GET /recommendations/models")["capabilities"]);
+        }
+
+        [Test]
         public void Generate_UnknownParameter_IsRefusedBeforePricing()
         {
             Assert.IsTrue(Run.Sync(_s.SignInWithApiKey("key_test", "secret_test")), _s.SignInError);

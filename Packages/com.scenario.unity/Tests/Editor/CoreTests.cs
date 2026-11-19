@@ -417,6 +417,27 @@ namespace Scenario.Editor.Tests
             Assert.IsTrue(catalog.Find("model_mine").IsLora);
             Assert.IsTrue(catalog.Search(new Catalog.Query { TeamOnly = true }).Single().IsPrivate);
         }
+
+        [Test]
+        public void RefreshLeavesOutPrivateModelsOfAProjectChosenMeanwhile()
+        {
+            var server = new FakeApi();
+            ApiClient client = null;
+            server.Routes["GET /models"] = (args, i) =>
+            {
+                if ((string)args["privacy"] == "private")
+                    return FakeApi.Json(new JObject { ["models"] = new JArray(new JObject { ["id"] = "model_other", ["name"] = "Other project", ["privacy"] = "private", ["capabilities"] = new JArray("txt2img") }) });
+                // Another project is chosen while the public models load.
+                client.SetScope("team_b", "project_b");
+                return FakeApi.Json(new JObject { ["models"] = new JArray(new JObject { ["id"] = "model_public", ["name"] = "Public", ["capabilities"] = new JArray("txt2img") }) });
+            };
+            client = new ApiClient(server, new ApiKeyAuth("k", "s"));
+            client.SetScope("team_a", "project_a");
+            var catalog = new Catalog("");
+            Assert.IsTrue(Run.Sync(catalog.Refresh(client, "team_a/project_a", 10)).Ok);
+            Assert.IsNotNull(catalog.Find("model_public"));
+            Assert.IsNull(catalog.Find("model_other"), "saved under team_a/project_a: project_b's models are not");
+        }
     }
 
     public class OutputTypeTests

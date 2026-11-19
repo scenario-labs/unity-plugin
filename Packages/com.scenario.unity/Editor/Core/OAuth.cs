@@ -60,14 +60,15 @@ namespace Scenario.Editor.Core
 
         /// <summary>
         /// Production, or the development provider and application named by both
-        /// SCENARIO_OAUTH_ISSUER (HTTPS) and SCENARIO_OAUTH_CLIENT_ID.
+        /// SCENARIO_OAUTH_ISSUER (HTTPS, without a query: the endpoints are paths under it)
+        /// and SCENARIO_OAUTH_CLIENT_ID.
         /// </summary>
         public static Result<OAuthApp> Select(Func<string, string> environment)
         {
             var issuer = (environment(IssuerVariable) ?? "").Trim();
             var clientId = (environment(ClientIdVariable) ?? "").Trim();
             if (issuer.Length == 0 && clientId.Length == 0) return Result<OAuthApp>.Success(Production);
-            if (issuer.Length == 0 || clientId.Length == 0 || !issuer.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            if (issuer.Length == 0 || clientId.Length == 0 || !OAuthClient.IsHttps(issuer) || issuer.IndexOfAny(new[] { '?', '#' }) >= 0)
                 return Result<OAuthApp>.Fail(ErrorKind.Local, $"Set {IssuerVariable} (HTTPS) and {ClientIdVariable} together, or neither.");
             return Result<OAuthApp>.Success(new OAuthApp(issuer, clientId));
         }
@@ -203,8 +204,9 @@ namespace Scenario.Editor.Core
 
         /// <summary>
         /// Polls until the person approves on the other device, declines, or the code expires.
-        /// slow_down adds 5 seconds between polls (RFC 8628, 3.5); a network or server failure
-        /// waits and tries again, as the code's expiry still ends the wait.
+        /// slow_down adds 5 seconds between polls and a connection timeout doubles the wait
+        /// (RFC 8628, 3.5); a network or server failure waits and tries again, as the code's
+        /// expiry still ends the wait.
         /// </summary>
         public async Task<Result<OAuthTokens>> PollDevice(DeviceCode device, Func<double> clock, CancellationToken cancel = default)
         {
@@ -214,10 +216,16 @@ namespace Scenario.Editor.Core
                 try { await _transport.Delay(interval, cancel).ConfigureAwait(false); }
                 catch (OperationCanceledException) { return Result<OAuthTokens>.Fail(ErrorKind.Canceled, "Sign-in canceled."); }
                 if (cancel.IsCancellationRequested) return Result<OAuthTokens>.Fail(ErrorKind.Canceled, "Sign-in canceled.");
+                // The code expired during the wait: polling with it again would only be refused.
+                if (clock() >= device.ExpiresAt) break;
                 var form = new Dictionary<string, string> { ["grant_type"] = DeviceGrant, ["device_code"] = device.Code, ["client_id"] = App.ClientId };
                 var reply = await _transport.SendAsync(HttpRequests.FormPost(App.TokenEndpoint, form, 30), cancel).ConfigureAwait(false);
                 if (cancel.IsCancellationRequested) return Result<OAuthTokens>.Fail(ErrorKind.Canceled, "Sign-in canceled.");
-                if (!reply.Answered || reply.Status >= 500) continue;
+                if (!reply.Answered || reply.Status >= 500)
+                {
+                    if (reply.Error == "timeout") interval *= 2;
+                    continue;
+                }
                 var data = Json.ParseObject(reply.Body);
                 if (reply.IsSuccess) return Tokens(reply, data, clock(), "");
                 // A rate limit without an OAuth error body means the same as slow_down.
@@ -240,7 +248,9 @@ namespace Scenario.Editor.Core
             return Result<OAuthTokens>.Fail(ErrorKind.Timeout, "The sign-in code expired. Start again.");
         }
 
-        static bool IsHttps(string url) => url.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+        /// <summary>A well-formed absolute HTTPS address with a host (a bad port or a relative path is not).</summary>
+        internal static bool IsHttps(string url)
+            => Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps && uri.Host.Length > 0;
 
         static Result<OAuthTokens> Tokens(HttpReply reply, JObject data, double now, string previousRefresh)
         {
@@ -493,6 +503,9 @@ namespace Scenario.Editor.Core
 
         static async Task<Result<OAuthSession>> Session(OAuthClient client, OAuthTokens tokens, CancellationToken cancel)
         {
+            // Without a refresh token the session ends with the access token and cannot be saved.
+            if (tokens.RefreshToken.Length == 0)
+                return Result<OAuthSession>.Fail(ErrorKind.Invalid, "Scenario did not return a refresh token, so this sign-in cannot be kept. Sign in again, or use an API key.");
             var user = await client.UserInfo(tokens.AccessToken, cancel).ConfigureAwait(false);
             return Result<OAuthSession>.Success(new OAuthSession
             {

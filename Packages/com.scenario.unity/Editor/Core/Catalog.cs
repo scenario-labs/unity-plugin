@@ -123,13 +123,17 @@ namespace Scenario.Editor.Core
         /// <summary>Fetches public and private trained models. Keeps the old list when the public fetch fails.</summary>
         public async Task<Result<int>> Refresh(ApiClient client, string scope, double now, CancellationToken cancel = default)
         {
+            var team = client.TeamId;
+            var project = client.ProjectId;
             var publicModels = await FetchAll(client, "public", MaxPublicPages, cancel);
             if (!publicModels.Ok) return publicModels.Cast<int>();
-            // Private models are a bonus: a failure (no workspace yet) leaves them out.
+            // Private models are a bonus: a failure (no workspace yet) leaves them out, and so does another
+            // project chosen since the refresh began, as they would be saved under this scope.
             var privateModels = await FetchAll(client, "private", MaxPrivatePages, cancel);
+            var sameProject = client.TeamId == team && client.ProjectId == project;
             var merged = new Dictionary<string, ModelInfo>();
             foreach (var model in publicModels.Value) merged[model.Id] = model;
-            if (privateModels.Ok)
+            if (privateModels.Ok && sameProject)
                 foreach (var model in privateModels.Value) merged[model.Id] = model;
             Models = merged.Values.ToList();
             FetchedAt = now;

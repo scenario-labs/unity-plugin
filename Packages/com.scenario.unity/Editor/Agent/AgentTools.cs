@@ -599,15 +599,21 @@ namespace Scenario.Editor.Agent
             if (B_(args, "recommended", false))
             {
                 // The API recommends by capability. A family such as motion shares its capabilities with
-                // other models (txt23d, video23d), so its own quick picks are the recommendation.
-                var family = type.Length > 0 && capability.Length == 0 && OutputTypes.Get(type).Family != null;
+                // other models (txt23d, video23d), so its own quick picks are the recommendation: those
+                // with the capability, when one is given.
+                var family = type.Length > 0 && OutputTypes.Get(type).Family != null;
                 if (family)
+                {
+                    if (capability.Length > 0 && S.Catalog.IsEmpty) await S.RefreshCatalog(false);
+                    var picks = OutputTypes.Get(type).QuickPicks.Where(id => capability.Length == 0 || (S.Model(id)?.Capabilities.Contains(capability) ?? false));
                     return Ok(new JObject
                     {
                         ["output_type"] = type,
-                        ["ranked"] = new JArray(OutputTypes.Get(type).QuickPicks.Take(limit).Select((id, i) => new JObject { ["rank"] = i + 1, ["model_id"] = id, ["name"] = S.Model(id)?.Name ?? id })),
+                        ["ranked"] = new JArray(picks.Take(limit).Select((id, i) => new JObject { ["rank"] = i + 1, ["model_id"] = id, ["name"] = S.Model(id)?.Name ?? id })),
                     });
-                var cap = capability.Length > 0 ? capability : CapabilityFor(type);
+                }
+                // Every output type: no capability filter unless one is given.
+                var cap = capability.Length > 0 ? capability : type == OutputTypes.All ? "" : CapabilityFor(type);
                 var result = await S.Recommend(cap, Math.Min(limit, 10));
                 if (!result.Ok) throw new ToolError(result.Error.Message);
                 return Ok(new JObject { ["capability"] = cap, ["ranked"] = result.Value["ranked"] });

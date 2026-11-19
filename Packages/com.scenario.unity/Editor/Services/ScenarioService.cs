@@ -320,7 +320,8 @@ namespace Scenario.Editor
                 return;
             }
             var session = result.Value;
-            Credentials.SaveRefreshToken(session.Tokens.RefreshToken, session.Info());
+            var store = Credentials.SaveRefreshToken(session.Tokens.RefreshToken, session.Info());
+            if (store.Length == 0) Notify("Signed in for this session only: the sign-in could not be saved.", "warning");
             UseOAuth(session.Tokens, session.Email);
             State = SignInState.SignedIn;
             Quotes.Clear();
@@ -406,20 +407,29 @@ namespace Scenario.Editor
         Task _teamsLoad;
         /// <summary>The sign-in the read in flight was started under.</summary>
         IAuthProvider _teamsAuth;
+        /// <summary>For the read in flight: a pick when any caller asked for one, quiet only when every caller was.</summary>
+        bool _teamsAutoPick, _teamsQuiet;
 
         /// <summary>
         /// Reads the account's teams and projects (free). One read at a time per sign-in: a second
-        /// caller shares the read in flight, unless that read was started under another sign-in.
-        /// quiet: a failure is not shown (the check at editor start).
+        /// caller shares the read in flight, with its options, unless that read was started under
+        /// another sign-in. quiet: a failure is not shown (the check at editor start).
         /// </summary>
         public Task LoadTeams(bool autoPick = false, bool quiet = false)
         {
-            if (_teamsLoad != null && !_teamsLoad.IsCompleted && _teamsAuth == Client.Auth) return _teamsLoad;
+            if (_teamsLoad != null && !_teamsLoad.IsCompleted && _teamsAuth == Client.Auth)
+            {
+                _teamsAutoPick |= autoPick;
+                _teamsQuiet &= quiet;
+                return _teamsLoad;
+            }
             _teamsAuth = Client.Auth;
-            return _teamsLoad = ReadTeams(autoPick, quiet);
+            _teamsAutoPick = autoPick;
+            _teamsQuiet = quiet;
+            return _teamsLoad = ReadTeams();
         }
 
-        async Task ReadTeams(bool autoPick, bool quiet)
+        async Task ReadTeams()
         {
             if (!IsSignedIn) return;
             var auth = Client.Auth;
@@ -433,11 +443,11 @@ namespace Scenario.Editor
             if (!teams.Ok)
             {
                 if (teams.Error.Kind == ErrorKind.Auth && Client.Auth is OAuthAuth) ExpireSession();
-                else if (!quiet) Notify(teams.Error.Message, "error");
+                else if (!_teamsQuiet) Notify(teams.Error.Message, "error");
                 Emit();
                 return;
             }
-            ApplyTeams(teams.Value, autoPick);
+            ApplyTeams(teams.Value, _teamsAutoPick);
             Emit();
         }
 
@@ -538,10 +548,13 @@ namespace Scenario.Editor
             CatalogLoading = true;
             CatalogError = "";
             Emit();
-            var result = await Catalog.Refresh(Client, ScopeKey, Json.Now());
+            var scope = ScopeKey;
+            var result = await Catalog.Refresh(Client, scope, Json.Now());
             CatalogLoading = false;
             if (!result.Ok) CatalogError = result.Error.Message;
             Emit();
+            // Another project was chosen meanwhile, and its refresh skipped while this one ran.
+            if (ScopeKey != scope) await RefreshCatalog(true);
         }
 
         public ModelInfo Model(string modelId) => Catalog.Find(modelId);
