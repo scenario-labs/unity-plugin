@@ -165,15 +165,34 @@ namespace ScenarioDev
             }
         }
 
-        static JObject LoadState() => File.Exists(StatePath) ? Json.ParseObject(File.ReadAllText(StatePath)) ?? new JObject() : new JObject();
+        /// <summary>
+        /// The steps already sent. No file is a first run; a file that cannot be read, or a write cut short, stops
+        /// the run before anything is sent: it may hold steps already paid for.
+        /// </summary>
+        static JObject LoadState()
+        {
+            if (File.Exists(StatePath))
+                return Json.ParseObject(File.ReadAllText(StatePath)) ?? throw new Exception($"{StatePath} cannot be read: restore it, it holds the steps already paid for");
+            if (File.Exists(StatePath + ".tmp")) throw new Exception($"{StatePath}.tmp is left from a write cut short: check it and rename it to story.json");
+            return new JObject();
+        }
+
+        /// <summary>Writes a temporary file first, so a write cut short keeps the previous checkpoints.</summary>
+        static void SaveState(JObject state)
+        {
+            var tmp = StatePath + ".tmp";
+            File.WriteAllText(tmp, state.ToString());
+            if (File.Exists(StatePath)) File.Delete(StatePath);
+            File.Move(tmp, StatePath);
+        }
 
         static async Task RunPaid()
         {
             var ledger = new List<string>();
             var failures = 0;
-            Directory.CreateDirectory(Out);
             try
             {
+                Directory.CreateDirectory(Out);
                 if (!S.Ready || Environment.GetEnvironmentVariable("SCENARIO_STORY") != "1" || S.Client.SpendingDisabled)
                 {
                     Log($"FAIL setup: needs a signed-in account, SCENARIO_STORY=1 and spending on (state {S.State}, credentials {S.Client.HasCredentials}, needs workspace {S.Client.NeedsWorkspace}, spending off {S.Client.SpendingDisabled})");
@@ -205,6 +224,12 @@ namespace ScenarioDev
                         failures++;
                         break;
                     }
+                    if (state[c.Name]?["sending"] != null)
+                    {
+                        Log($"FAIL {c.Name}: an earlier run sent it with an unknown outcome; settle it in Jobs (import it if it ran), never send it again");
+                        failures++;
+                        break;
+                    }
                     var missing = c.From.Values.Where(step => state[step]?["asset"] == null).ToList();
                     if (missing.Count > 0)
                     {
@@ -212,11 +237,13 @@ namespace ScenarioDev
                         failures++;
                         break;
                     }
-                    var (row, quoted, problems) = await Send(c, state, job =>
+                    var (row, quoted, problems) = await Send(c, state, mark =>
                     {
-                        // Recorded as soon as Scenario has the job, before the wait and the import.
-                        state[c.Name] = new JObject { ["job"] = job };
-                        File.WriteAllText(StatePath, state.ToString());
+                        // Recorded before the paid request, then as soon as Scenario has the job (before the wait
+                        // and the import); removed only when nothing ran.
+                        if (mark != null) state[c.Name] = mark;
+                        else state.Remove(c.Name);
+                        SaveState(state);
                     });
                     var ok = problems.Count == 0;
                     if (ok)
@@ -232,7 +259,7 @@ namespace ScenarioDev
                             ["files"] = new JArray(row.Files),
                             ["placed"] = saved ? new JArray(row.Placed) : new JArray(),
                         };
-                        File.WriteAllText(StatePath, state.ToString());
+                        SaveState(state);
                         if (!saved)
                         {
                             problems.Add($"{ScenePath} could not be saved: place {Path.GetFileName(file)} again, it is imported");
@@ -268,7 +295,13 @@ namespace ScenarioDev
                         "|---|---|---|---|---|---|",
                     };
                     section.AddRange(ledger);
-                    File.AppendAllText(Ledger, string.Join("\n", section) + "\n");
+                    try { File.AppendAllText(Ledger, string.Join("\n", section) + "\n"); }
+                    catch (Exception e)
+                    {
+                        // The jobs and charges are in this run's log lines above.
+                        Log($"FAIL could not append to {Ledger}: {e.Message}");
+                        failures++;
+                    }
                 }
                 Log($"STORY done failures={failures}");
                 Finish("paid.txt", failures > 0 ? 1 : 0);
@@ -276,7 +309,7 @@ namespace ScenarioDev
         }
 
         /// <summary>The window's path: the form from the live schema, its presets, a price check, one send, then the import and placement.</summary>
-        static async Task<(JobRow row, double quoted, List<string> problems)> Send(Case c, JObject state, Action<string> sent)
+        static async Task<(JobRow row, double quoted, List<string> problems)> Send(Case c, JObject state, Action<JObject> checkpoint)
         {
             var schema = await S.Schema(c.Model);
             if (!schema.Ok) return (null, 0, new List<string> { "schema: " + schema.Error.Message });
@@ -296,11 +329,21 @@ namespace ScenarioDev
             var quote = await S.Estimate(request);
             if (!quote.Ok || S.EstimateAlarm) return (null, 0, new List<string> { "price: " + (quote.Ok ? "a price check returned a job" : quote.Error.Message) });
             if (quote.Value.Cu > c.Cap) return (null, quote.Value.Cu, new List<string> { $"not sent: {quote.Value.Cu} CU is above the cap of {c.Cap}" });
+            // A lost answer (or the editor closing) keeps the step blocked here, even once Jobs links the request
+            // to its job and the ledger stops blocking the same request.
+            checkpoint(new JObject { ["sending"] = S.Fingerprint(request) });
+            var before = new HashSet<string>(S.Ledger.Jobs.Select(r => r.LocalId));
             var started = await S.Generate(request);
             if (!started.Ok)
-                return (S.Ledger.Jobs.LastOrDefault(), quote.Value.Cu, new List<string> { (started.Error.Ambiguous ? "UNKNOWN outcome, check Jobs: " : "not sent: ") + started.Error.Message });
+            {
+                // This request's own ledger row, none when it was refused before one was written. The step opens
+                // again only when nothing ran and no earlier send of the same request is still unresolved.
+                var intent = S.Ledger.Jobs.FirstOrDefault(r => !before.Contains(r.LocalId));
+                if (!started.Error.Ambiguous && !S.Ledger.Blocks(S.Fingerprint(request))) checkpoint(null);
+                return (intent, quote.Value.Cu, new List<string> { (started.Error.Ambiguous ? "UNKNOWN outcome, check Jobs: " : "not sent: ") + started.Error.Message });
+            }
             var row = started.Value;
-            sent(row.JobId);
+            checkpoint(new JObject { ["job"] = row.JobId });
             Log($"sent {c.Name}: {request.ModelName} job {row.JobId} quoted {quote.Value.Cu}");
             var start = Json.Now();
             while (!(row.IsFinal && (row.State != JobState.Success || row.Imported || row.Error.StartsWith("Import failed"))) && Json.Now() - start < 1500)
@@ -392,10 +435,13 @@ namespace ScenarioDev
             }
         };
 
-        static GameObject Placed(JObject state, string step)
+        static GameObject Placed(JObject state, string step) => PlacedOrNull(state, step) ?? throw new Exception("no placed " + step);
+
+        /// <summary>The step's object in the open scene, or null when it has none (not run, not finished, or not saved).</summary>
+        static GameObject PlacedOrNull(JObject state, string step)
         {
             var path = (string)state[step]?["placed"]?.FirstOrDefault();
-            return (path != null ? Placer.FindByPath(path) : null) ?? throw new Exception("no placed " + step);
+            return path != null ? Placer.FindByPath(path) : null;
         }
 
         static void ShowOnly(params GameObject[] keep)
@@ -433,8 +479,9 @@ namespace ScenarioDev
             var forward = Quaternion.Euler(0, look, 0) * Vector3.forward;
             var right = Quaternion.Euler(0, look + 90, 0) * Vector3.forward;
             var hunter = Placed(state, step);
-            var chest = Placed(state, state["rich-chest"] != null ? "rich-chest" : "chest");
-            var props = new[] { "shovel", "coins" }.Where(p => state[p] != null).ToDictionary(p => p, p => Placed(state, p));
+            // The hero set's upgrades only when placed: else the first chest, and no shovel or coins.
+            var chest = PlacedOrNull(state, "rich-chest") ?? Placed(state, "chest");
+            var props = new[] { "shovel", "coins" }.Select(p => (name: p, go: PlacedOrNull(state, p))).Where(p => p.go != null).ToDictionary(p => p.name, p => p.go);
             ShowOnly(props.Values.Append(hunter).Append(chest).ToArray());
             var dunes = Dunes(state);
             var urp = GraphicsSettings.currentRenderPipeline as UniversalRenderPipelineAsset;

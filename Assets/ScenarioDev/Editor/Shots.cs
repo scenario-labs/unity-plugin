@@ -26,6 +26,8 @@ namespace ScenarioDev
         sealed class Step
         {
             public string Name;
+            /// <summary>Its place in the full run, in the file name, so a retake overwrites the same file.</summary>
+            public int Number;
             public Action Setup;
             public float MinWait = 1.5f;
             public float MaxWait = 20f;
@@ -94,13 +96,13 @@ namespace ScenarioDev
             Add("step-rig", () => StartModelStep("rig"), min: 6, max: 40);
             Add("step-animate-library", () => StartModelStep("animate-3d"), min: 6, max: 40);
             Add("motion-picker", () => Click(Q("motion-current")), min: 2);
-            Add("motion-picker-search", () => { var f = Q<TextField>("motion-search"); if (f != null) f.value = "sword"; }, min: 2);
+            Add("motion-picker-search", () => Search("motion-search", "sword"), min: 2);
             Add("create-more-settings", () => { _window.CloseOverlay(); _window.Create.SelectType("image"); _window.Create.SelectModel("model_openai-gpt-image-2-5-flare"); }, min: 4);
             Add("create-more-settings-open", () => Click(Q("more-settings")), min: 1.5f);
             Add("model-browser", () => Click(Q("change-model")), min: 3);
-            Add("model-browser-search", () => { var f = Q<TextField>("model-search"); if (f != null) f.value = "flux"; }, min: 1.5f);
+            Add("model-browser-search", () => Search("model-search", "flux"), min: 1.5f);
             Add("palette", () => { _window.CloseOverlay(); _window.OpenPalette(); }, min: 1.5f);
-            Add("palette-search", () => { var f = Q<TextField>("palette-search"); if (f != null) f.value = "sky"; }, min: 1.5f);
+            Add("palette-search", () => Search("palette-search", "sky"), min: 1.5f);
             // Long enough for the Scenario thumbnails to arrive.
             Add("library-scenario", () => { _window.CloseOverlay(); _window.Show("library"); }, min: 16, max: 30);
             Add("library-project", () => Click(Q("tab-project")), min: 2);
@@ -166,10 +168,11 @@ namespace ScenarioDev
         /// <summary>A generated character for the 3D step shots: the handbook story's retextured hunter, else the acceptance run's knight.</summary>
         static JobRow LastModel()
         {
+            bool Usable(JobRow r) => r.Imported && r.AssetIds.Count > 0 && r.Files.Any(f => f.EndsWith(".glb"));
             var story = (string)StoryState()?["retexture"]?["job"];
             var hunter = story != null ? S.Ledger.FindByJob(story) : null;
-            if (hunter != null && hunter.Imported) return hunter;
-            var models = S.Ledger.Jobs.Where(r => r.OutputType == "model3d" && r.Imported && r.AssetIds.Count > 0 && r.Files.Any(f => f.EndsWith(".glb"))).ToList();
+            if (hunter != null && Usable(hunter)) return hunter;
+            var models = S.Ledger.Jobs.Where(r => r.OutputType == "model3d" && Usable(r)).ToList();
             return models.FirstOrDefault(r => r.Files.Any(f => f.Contains("knight"))) ?? models.FirstOrDefault();
         }
 
@@ -200,10 +203,11 @@ namespace ScenarioDev
         }
 
         static void Add(string name, Action setup, float min = 1.5f, float max = 20f, Vector2? size = null, bool both = true, Func<EditorWindow> capture = null)
-            => Steps.Add(new Step { Name = name, Setup = setup, MinWait = min, MaxWait = max, Size = size ?? new Vector2(460, 780), BothThemes = both, Capture = capture });
+            => Steps.Add(new Step { Name = name, Number = Steps.Count + 1, Setup = setup, MinWait = min, MaxWait = max, Size = size ?? new Vector2(460, 780), BothThemes = both, Capture = capture });
 
         static EditorWindow _inspector;
-        static string _projectName, _teamName, _email;
+        static string _projectName, _teamName, _teamId, _projectId, _email;
+        static bool _agentEnabled;
 
         static EditorWindow Inspector()
         {
@@ -216,14 +220,18 @@ namespace ScenarioDev
             _out = Environment.GetEnvironmentVariable("SCENARIO_SHOTS_DIR");
             if (string.IsNullOrEmpty(_out)) _out = "Library/ScenarioShots";
             Directory.CreateDirectory(_out);
-            // SCENARIO_SHOTS_ONLY: a comma-separated list of shot names, to retake only those.
+            // SCENARIO_SHOTS_ONLY: a comma-separated list of shot names, to retake only those, with the shots that
+            // open their view (palette,palette-search).
             var only = (Environment.GetEnvironmentVariable("SCENARIO_SHOTS_ONLY") ?? "").Split(',').Select(n => n.Trim()).Where(n => n.Length > 0).ToList();
             if (only.Count > 0) Steps.RemoveAll(step => !only.Contains(step.Name));
             // Switching skin inside a batch editor stalls it: the launcher sets the skin before launch.
             _theme = EditorGUIUtility.isProSkin ? "dark" : "light";
             Debug.Log($"SHOTS begin theme={_theme} pro={EditorGUIUtility.isProSkin} steps={Steps.Count}");
+            _agentEnabled = ScenarioUserSettings.instance.AgentEnabled;
             OpenWindow();
             ShowWorkspaceName();
+            // A team read that lands during a shot writes the real names back: masked again before any redraw.
+            S.Changed += ShowWorkspaceName;
             _index = 0;
             if (_theme == "light") while (_index < Steps.Count && !Steps[_index].BothThemes) _index++;
             _setupDone = false;
@@ -238,7 +246,7 @@ namespace ScenarioDev
         static void ShowWorkspaceName()
         {
             var user = ScenarioUserSettings.instance;
-            if (_projectName == null) (_projectName, _teamName) = (user.ProjectName, user.TeamName);
+            if (_projectName == null) (_projectName, _teamName, _teamId, _projectId) = (user.ProjectName, user.TeamName, user.TeamId, user.ProjectId);
             if (S.Client.Auth is OAuthAuth oauth && oauth.Email.Length > 0) (_email, oauth.Email) = (oauth.Email, "");
             if (user.ProjectName == "Treasure Hunt" && user.TeamName == "My Team") return;
             (user.ProjectName, user.TeamName) = ("Treasure Hunt", "My Team");
@@ -278,7 +286,7 @@ namespace ScenarioDev
                 var elapsed = now - _started;
                 if (elapsed < step.MinWait) return;
                 if (Busy() && elapsed < step.MaxWait) return;
-                var path = Path.Combine(_out, $"{_theme}-{Steps.IndexOf(step) + 1:00}-{step.Name}.png");
+                var path = Path.Combine(_out, $"{_theme}-{step.Number:00}-{step.Name}.png");
                 var error = WindowShots.Capture(step.Capture != null ? step.Capture() : _window, path);
                 Report.Add($"{Path.GetFileName(path)} {(error.Length > 0 ? "ERROR " + error : "ok")} busy={Busy()} t={elapsed:0.0}");
                 _index++;
@@ -297,11 +305,15 @@ namespace ScenarioDev
         static void Finish()
         {
             EditorApplication.update -= Tick;
-            if (_projectName != null)
-            {
-                (ScenarioUserSettings.instance.ProjectName, ScenarioUserSettings.instance.TeamName) = (_projectName, _teamName);
-                ScenarioUserSettings.instance.Save();
-            }
+            S.Changed -= ShowWorkspaceName;
+            var user = ScenarioUserSettings.instance;
+            // The saved names go back to the workspace they belong to; if the team read moved to another one
+            // meanwhile, that one's names.
+            if (_projectName != null && (user.TeamId, user.ProjectId) == (_teamId, _projectId)) (user.ProjectName, user.TeamName) = (_projectName, _teamName);
+            else if (_projectName != null) (user.ProjectName, user.TeamName) = (S.CurrentTeam?.Projects.FirstOrDefault(p => p.Id == user.ProjectId)?.Name ?? "", S.CurrentTeam?.Name ?? "");
+            // The agent bridge setting as before the run, whichever shots ran.
+            user.AgentEnabled = _agentEnabled;
+            user.Save();
             if (_email != null && S.Client.Auth is OAuthAuth oauth) oauth.Email = _email;
             foreach (var line in Report) Debug.Log("SHOTS " + line);
             Debug.Log($"SHOTS done theme={_theme}");
@@ -313,6 +325,14 @@ namespace ScenarioDev
 
         static VisualElement Q(string name) => _window.rootVisualElement.Q(name);
         static T Q<T>(string name) where T : VisualElement => _window.rootVisualElement.Q<T>(name);
+
+        /// <summary>Types into a search field; a missing one (its view not open) shows in the report, as a missing click target does.</summary>
+        static void Search(string name, string text)
+        {
+            var field = Q<TextField>(name);
+            if (field != null) field.value = text;
+            else Report.Add($"field {name} missing");
+        }
 
         static VisualElement FindByText(string text)
             => _window.rootVisualElement.Query<Label>().Where(l => l.text == text).First();

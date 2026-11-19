@@ -268,8 +268,9 @@ namespace ScenarioDev
                 var saved = s.Credentials.Load();
                 var emptied = saved.Method.Length == 0 && saved.Secret.Length == 0;
                 lines.Add($"signed out: credential store {(emptied ? "empty" : "NOT EMPTY")}");
-                // Sign out revokes in the background.
-                await Task.Delay(3000);
+                // Sign out revokes in the background, within its 15 second timeout: the probe waits it out, so it
+                // follows the revocation's answer.
+                await Task.Delay(16000);
                 var app = OAuthApp.Select(Environment.GetEnvironmentVariable);
                 var reuse = await new OAuthClient(new HttpTransport(), app.Value).Refresh(refresh, Json.Now());
                 // Only a refusal proves the revocation: a network or server failure does not.
