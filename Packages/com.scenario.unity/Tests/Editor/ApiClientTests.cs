@@ -181,6 +181,19 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
+        public void ACancelDuringTheRetryPauseEndsCanceled()
+        {
+            using (var cancel = new System.Threading.CancellationTokenSource())
+            {
+                var client = new ApiClient(new CancelOnDelay(_server, cancel), new ApiKeyAuth("key_abc123", "secret"));
+                _server.Routes["GET /jobs/{id}"] = (args, i) => FakeApi.Status(502);
+                var job = Run.Sync(client.GetJob("job_1", cancel.Token));
+                Assert.AreEqual(ErrorKind.Canceled, job.Error.Kind, "a result, not an exception");
+                Assert.AreEqual(1, _server.Count("GET /jobs/{id}"));
+            }
+        }
+
+        [Test]
         public void AJobIsFlattenedForTheLedger()
         {
             _server.Routes["GET /jobs/{id}"] = (args, i) => FakeApi.Fixture("job.json");
@@ -306,6 +319,20 @@ namespace Scenario.Editor.Tests
             auth.OnHeader = () => _client.SpendingDisabled = true;
             var result = Run.Sync(_client.Submit("m", new JObject()));
             Assert.IsTrue(result.Error.NotSent);
+            Assert.AreEqual(0, _server.Requests.Count);
+        }
+
+        [Test]
+        public void SigningOutWhileTheHeaderRefreshesSendsNothing()
+        {
+            var auth = new StubAuth();
+            _client.SetAuth(auth);
+            _client.SetScope("t", "p");
+            // Signed out while an expired token refreshed: the request belonged to that account.
+            auth.OnHeader = () => _client.SetAuth(new NoAuth());
+            var result = Run.Sync(_client.Submit("m", new JObject()));
+            Assert.IsTrue(result.Error.NotSent);
+            Assert.AreEqual(ErrorKind.Local, result.Error.Kind, "not an expired sign-in: the account signed in now must stay");
             Assert.AreEqual(0, _server.Requests.Count);
         }
 
@@ -514,6 +541,30 @@ namespace Scenario.Editor.Tests
                 Refreshes++;
                 OnRefresh?.Invoke();
                 return Task.FromResult(RefreshWorks);
+            }
+        }
+
+        /// <summary>The caller cancels while the client pauses before a retry.</summary>
+        sealed class CancelOnDelay : ITransport
+        {
+            readonly FakeApi _inner;
+            readonly System.Threading.CancellationTokenSource _cancel;
+
+            public CancelOnDelay(FakeApi inner, System.Threading.CancellationTokenSource cancel)
+            {
+                _inner = inner;
+                _cancel = cancel;
+            }
+
+            public Task<HttpReply> SendAsync(HttpRequestSpec request, System.Threading.CancellationToken cancel = default) => _inner.SendAsync(request, cancel);
+
+            public Task<HttpReply> DownloadAsync(string url, string destPath, double timeoutSeconds, System.IProgress<float> progress = null, System.Threading.CancellationToken cancel = default)
+                => _inner.DownloadAsync(url, destPath, timeoutSeconds, progress, cancel);
+
+            public Task Delay(double seconds, System.Threading.CancellationToken cancel = default)
+            {
+                _cancel.Cancel();
+                return Task.Delay(System.TimeSpan.FromSeconds(seconds), cancel);
             }
         }
 

@@ -221,6 +221,18 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
+        public void AnInputRequiredOnceAnotherIsSet_IsCheckedAgainstTheValues()
+        {
+            var fields = SchemaForm.FieldsFromSchema(JObject.Parse(@"{""inputs"":[
+                {""name"":""image"",""type"":""file"",""kind"":""image"",""required"":{""ifDefined"":{""mask"":{""message"":""An image is required when a mask is provided.""}}}},
+                {""name"":""mask"",""type"":""file"",""kind"":""image""}]}"));
+            Assert.IsFalse(fields.Single(f => f.Name == "image").Required, "the form does not ask for it up front");
+            Assert.IsEmpty(SchemaForm.Validate(fields, new JObject()), "both empty is valid");
+            CollectionAssert.AreEqual(new[] { "An image is required when a mask is provided." }, SchemaForm.Validate(fields, new JObject { ["mask"] = "asset_m" }));
+            Assert.IsEmpty(SchemaForm.Validate(fields, new JObject { ["mask"] = "asset_m", ["image"] = "asset_i" }));
+        }
+
+        [Test]
         public void PatinaSchemaHasItsFields()
         {
             var fields = SchemaForm.FieldsFromSchema(Model("schema_patina.json"));

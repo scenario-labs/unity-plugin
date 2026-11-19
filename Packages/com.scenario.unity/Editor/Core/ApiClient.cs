@@ -396,9 +396,12 @@ namespace Scenario.Editor.Core
             // A complete that raced an earlier one, or landed before the upload was readable, is fine: the poll decides.
             if (!done.Ok && !(done.Error.Status == 400 && (done.Error.Detail.Contains("Unable to complete upload") || done.Error.Detail.Contains("Unable to load"))))
                 return done;
-            for (double waited = 0; waited <= UploadWaitSeconds; waited += UploadPollSeconds)
+            // The status reads count against the wait too, not only the pauses between them.
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            for (double waited = 0; waited <= UploadWaitSeconds && clock.Elapsed.TotalSeconds < UploadWaitSeconds; waited += UploadPollSeconds)
             {
-                var poll = Unwrap<JObject>(await Send(Kind.Read, "GET", path, null, null, DefaultTimeout, cancel, scope: scope), "upload");
+                var left = UploadWaitSeconds - clock.Elapsed.TotalSeconds;
+                var poll = Unwrap<JObject>(await Send(Kind.Read, "GET", path, null, null, Math.Min(DefaultTimeout, left), cancel, scope: scope), "upload");
                 if (!poll.Ok) return poll;
                 var assetId = Json.Str(poll.Value, "entityId");
                 if (assetId.Length > 0) return Result<JObject>.Success(new JObject { ["asset_id"] = assetId });
@@ -406,7 +409,8 @@ namespace Scenario.Editor.Core
                 if (status == "failed")
                     return Result<JObject>.Fail(ErrorKind.Invalid, "Scenario could not import the upload: " + Json.Str(poll.Value, "errorMessage", "no details"));
                 if (status == "imported") return Result<JObject>.Fail(ErrorKind.Protocol, "Scenario imported the upload but named no asset.");
-                await Transport.Delay(UploadPollSeconds, cancel);
+                try { await Transport.Delay(UploadPollSeconds, cancel); }
+                catch (OperationCanceledException) { return Canceled(); }
             }
             return Result<JObject>.Fail(ErrorKind.Timeout, "Scenario is still processing the upload. Try again in a moment.");
         }
@@ -469,7 +473,9 @@ namespace Scenario.Editor.Core
                     var delay = RetryDelay(attempt, error.RetryAfter);
                     if (delay >= 0)
                     {
-                        await Transport.Delay(delay, cancel);
+                        // Canceled during the pause: a result, as when canceled during the request.
+                        try { await Transport.Delay(delay, cancel); }
+                        catch (OperationCanceledException) { return Canceled(); }
                         continue;
                     }
                 }
@@ -481,17 +487,19 @@ namespace Scenario.Editor.Core
         /// <summary>One request, resent once after an OAuth refresh when the authorizer refused it.</summary>
         async Task<Result<JObject>> SendOnce(Kind kind, IAuthProvider auth, string method, string url, byte[] payload, double timeout, CancellationToken cancel)
         {
-            // Reading the header can refresh an expired token over the network: spending is checked after it.
+            // Reading the header can refresh an expired token over the network: the account and
+            // spending are checked after it, so a sign-out meanwhile sends nothing.
             var authorization = await auth.AuthorizationHeaderAsync();
+            if (!ReferenceEquals(Auth, auth)) return AccountChanged();
             if (kind == Kind.Paid && SpendingDisabled) return SpendingOff();
             var reply = await Post(authorization, method, url, payload, timeout, cancel);
             if (reply.Answered && IsAuthorizerRefusal(reply) && ReferenceEquals(Auth, auth) && await auth.RefreshAsync())
             {
                 // The refused attempt never reached Scenario: the resend is the one that counts, so it
                 // goes only for the same account and, if paid, only while spending is still on.
-                if (!ReferenceEquals(Auth, auth))
-                    return Result<JObject>.Fail(ErrorKind.Auth, "The Scenario account changed during the request, so it was not sent.", e => e.NotSent = true);
+                if (!ReferenceEquals(Auth, auth)) return AccountChanged();
                 authorization = await auth.AuthorizationHeaderAsync();
+                if (!ReferenceEquals(Auth, auth)) return AccountChanged();
                 if (kind == Kind.Paid && SpendingDisabled) return SpendingOff();
                 reply = await Post(authorization, method, url, payload, timeout, cancel);
             }
@@ -500,6 +508,12 @@ namespace Scenario.Editor.Core
 
         static Result<JObject> SpendingOff() => Result<JObject>.Fail(ErrorKind.Local,
             "Spending is turned off (SCENARIO_NO_SPEND=1 or the Scenario setting), so nothing was sent.", e => e.NotSent = true);
+
+        /// <summary>Local, not Auth: the account signed in now did not fail, so its session must not end.</summary>
+        static Result<JObject> AccountChanged() => Result<JObject>.Fail(ErrorKind.Local,
+            "The Scenario account changed during the request, so it was not sent.", e => e.NotSent = true);
+
+        static Result<JObject> Canceled() => Result<JObject>.Fail(ErrorKind.Canceled, "Canceled.");
 
         async Task<HttpReply> Post(string authorization, string method, string url, byte[] payload, double timeout, CancellationToken cancel)
         {

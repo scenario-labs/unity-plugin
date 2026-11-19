@@ -108,7 +108,7 @@ namespace Scenario.Editor.Core
         public string SaveApiKey(string key, string secret, JObject info = null)
             => Save("apikey", (key ?? "").Trim(), (secret ?? "").Trim(), info);
 
-        /// <summary>Saves the OAuth refresh token with the account label and the client id it was issued to.</summary>
+        /// <summary>Saves the OAuth refresh token with the account label, and info's issuer and client_id: a restore needs both to match the application.</summary>
         public string SaveRefreshToken(string refreshToken, JObject info)
             => Save("oauth", "", refreshToken ?? "", info);
 

@@ -27,6 +27,8 @@ namespace Scenario.Editor.Core
         public string Description = "";
         public FieldType Type = FieldType.Text;
         public bool Required;
+        /// <summary>The API's { ifDefined }: the inputs whose value makes this one required, with the API's message.</summary>
+        public Dictionary<string, string> RequiredWith = new Dictionary<string, string>();
         public JToken Default;
         public double? Min;
         public double? Max;
@@ -104,8 +106,18 @@ namespace Scenario.Editor.Core
             return ordered;
         }
 
-        /// <summary>The API's { always: true } (or a plain boolean). { ifDefined: ... } depends on another input, so it is not required up front.</summary>
+        /// <summary>The API's { always: true } (or a plain boolean). { ifDefined: ... } depends on another input, so it is not required up front: Validate checks it.</summary>
         static bool IsRequired(JToken required) => required is JObject rule ? Json.Truthy(rule["always"]) : Json.Truthy(required);
+
+        /// <summary>{ ifDefined: { sibling: { message } } }: the inputs that make this one required once set, and why.</summary>
+        static Dictionary<string, string> RequiredOnceSet(JToken required)
+        {
+            var siblings = new Dictionary<string, string>();
+            if (required is JObject rule && rule["ifDefined"] is JObject names)
+                foreach (var sibling in names.Properties())
+                    siblings[sibling.Name] = sibling.Value is JObject detail ? Json.Str(detail, "message") : "";
+            return siblings;
+        }
 
         static int MaxLengthOf(JObject p) => (int)Json.Num(p, "maxLength");
 
@@ -120,6 +132,7 @@ namespace Scenario.Editor.Core
                 Label = Json.Str(p, "label").Length > 0 ? Json.Str(p, "label") : Humanize(name),
                 Description = Json.Str(p, "description"),
                 Required = IsRequired(p["required"]),
+                RequiredWith = RequiredOnceSet(p["required"]),
                 Default = p["default"]?.DeepClone(),
                 Min = p["min"] != null ? Json.ToDouble(p["min"]) : (double?)null,
                 Max = p["max"] != null ? Json.ToDouble(p["max"]) : (double?)null,
@@ -242,7 +255,13 @@ namespace Scenario.Editor.Core
                     problems.Add(field.Type == FieldType.Prompt ? "Write a prompt." : field.IsFile ? $"Add {Article(field.Label)}." : $"{field.Label}: required.");
                     continue;
                 }
-                if (Json.IsEmpty(value)) continue;
+                if (Json.IsEmpty(value))
+                {
+                    // Required once another input is set, as the payload would send it ({ ifDefined }).
+                    var sibling = field.RequiredWith.FirstOrDefault(w => !Json.IsEmpty(values?[w.Key]) && fields.Any(f => f.Name == w.Key));
+                    if (sibling.Key != null) problems.Add(sibling.Value.Length > 0 ? sibling.Value : $"{field.Label}: required.");
+                    continue;
+                }
                 switch (field.Type)
                 {
                     case FieldType.Number:
