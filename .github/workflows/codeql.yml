@@ -50,12 +50,13 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
 
-      # The editor archive is about 4.4 GB; only its managed assemblies are kept.
-      # The cache key changes with the Unity version.
-      - name: Cache reference assemblies
+      # The editor archive is about 4.4 GB (about 6 minutes); only its managed
+      # assemblies are kept, cached per Unity version. Restore and save are
+      # separate so a failed analysis still keeps the download.
+      - name: Restore reference assemblies
         id: cache
         if: matrix.language == 'csharp'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: codeql-refs
           key: codeql-refs-unity-${{ steps.unity.outputs.version }}
@@ -77,6 +78,13 @@ jobs:
           test -f codeql-refs/UnityEngine.CoreModule.dll
           test -f codeql-refs/nunit.framework.dll
           find codeql-refs -name '*.dll' | wc -l
+
+      - name: Save reference assemblies
+        if: matrix.language == 'csharp' && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: codeql-refs
+          key: ${{ steps.cache.outputs.cache-primary-key }}
 
       - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
