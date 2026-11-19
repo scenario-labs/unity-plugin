@@ -50,13 +50,14 @@ namespace Scenario.Editor.Core
             Cancel,
         }
 
-        /// <summary>The production API, or an HTTPS URL in SCENARIO_API_URL.</summary>
+        /// <summary>The production API, or an HTTPS URL in SCENARIO_API_URL (a base path such as /v1, no query or fragment).</summary>
         public static Result<string> BaseUrlFrom(Func<string, string> environment)
         {
             var url = (environment(BaseUrlVariable) ?? "").Trim().TrimEnd('/');
             if (url.Length == 0) return Result<string>.Success(DefaultBaseUrl);
-            if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                return Result<string>.Fail(ErrorKind.Local, $"{BaseUrlVariable} must be an HTTPS URL; using {DefaultBaseUrl}.");
+            // Request paths are appended to it: after a query or a fragment they would miss their route.
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || uri.Host.Length == 0 || uri.Query.Length > 0 || uri.Fragment.Length > 0)
+                return Result<string>.Fail(ErrorKind.Local, $"{BaseUrlVariable} must be an HTTPS URL without a query or fragment; using {DefaultBaseUrl}.");
             return Result<string>.Success(url);
         }
 
@@ -168,7 +169,10 @@ namespace Scenario.Editor.Core
         {
             if (!result.Ok) return result.Cast<Price>();
             var value = result.Value;
-            if (value["creativeUnitsCost"] == null) return Result<Price>.Fail(ErrorKind.Protocol, "Scenario returned no price for this request.");
+            // Only a number is a price (zero included): a null or a string is not free.
+            var cost = value["creativeUnitsCost"];
+            if (cost == null || (cost.Type != JTokenType.Integer && cost.Type != JTokenType.Float))
+                return Result<Price>.Fail(ErrorKind.Protocol, "Scenario returned no price for this request.");
             return Result<Price>.Success(new Price
             {
                 Cu = Json.Num(value, "creativeUnitsCost"),
@@ -239,9 +243,10 @@ namespace Scenario.Editor.Core
         /// <summary>A model's inputs: { model_id, name, capabilities, inputs }.</summary>
         public async Task<Result<JObject>> GetSchema(string modelId, CancellationToken cancel = default)
         {
-            var model = await GetModel(modelId, cancel);
+            // A reply without its model is an error, not a model without inputs: the service caches schemas.
+            var model = Unwrap<JObject>(await GetModel(modelId, cancel), "model");
             if (!model.Ok) return model;
-            var value = model.Value["model"] as JObject ?? new JObject();
+            var value = model.Value;
             return Result<JObject>.Success(new JObject
             {
                 ["model_id"] = Json.Str(value, "id", modelId),
@@ -404,8 +409,7 @@ namespace Scenario.Editor.Core
             double timeout = DefaultTimeout, CancellationToken cancel = default, bool scoped = true)
         {
             if (!HasCredentials) return Result<JObject>.Fail(ErrorKind.Auth, "Sign in to Scenario first.", e => e.NotSent = true);
-            if (kind == Kind.Paid && SpendingDisabled)
-                return Result<JObject>.Fail(ErrorKind.Local, "Spending is turned off (SCENARIO_NO_SPEND=1 or the Scenario setting), so nothing was sent.", e => e.NotSent = true);
+            if (kind == Kind.Paid && SpendingDisabled) return SpendingOff();
             var parameters = query != null ? new Dictionary<string, string>(query) : new Dictionary<string, string>();
             if (scoped && Auth.NeedsScope)
             {
@@ -415,6 +419,9 @@ namespace Scenario.Editor.Core
                 parameters["projectId"] = ProjectId;
             }
             var url = BaseUrl + path + QueryString(parameters);
+            // The credential goes over HTTPS only, whoever set BaseUrl.
+            if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return Result<JObject>.Fail(ErrorKind.Local, "The Scenario API URL is not HTTPS, so nothing was sent.", e => e.NotSent = true);
             // Every attempt goes out under the account this call was built for.
             var auth = Auth;
             var payload = body != null ? Encoding.UTF8.GetBytes(body.ToString(Formatting.None)) : null;
@@ -452,21 +459,27 @@ namespace Scenario.Editor.Core
         /// <summary>One request, resent once after an OAuth refresh when the authorizer refused it.</summary>
         async Task<Result<JObject>> SendOnce(Kind kind, IAuthProvider auth, string method, string url, byte[] payload, double timeout, CancellationToken cancel)
         {
-            var reply = await Post(auth, method, url, payload, timeout, cancel);
+            // Reading the header can refresh an expired token over the network: spending is checked after it.
+            var authorization = await auth.AuthorizationHeaderAsync();
+            if (kind == Kind.Paid && SpendingDisabled) return SpendingOff();
+            var reply = await Post(authorization, method, url, payload, timeout, cancel);
             if (reply.Answered && IsAuthorizerRefusal(reply) && ReferenceEquals(Auth, auth) && await auth.RefreshAsync())
             {
                 // The refused attempt never reached Scenario: the resend is the one that counts, so it
                 // goes only for the same account and, if paid, only while spending is still on.
                 if (!ReferenceEquals(Auth, auth))
                     return Result<JObject>.Fail(ErrorKind.Auth, "The Scenario account changed during the request, so it was not sent.", e => e.NotSent = true);
-                if (kind == Kind.Paid && SpendingDisabled)
-                    return Result<JObject>.Fail(ErrorKind.Local, "Spending is turned off (SCENARIO_NO_SPEND=1 or the Scenario setting), so nothing was sent.", e => e.NotSent = true);
-                reply = await Post(auth, method, url, payload, timeout, cancel);
+                authorization = await auth.AuthorizationHeaderAsync();
+                if (kind == Kind.Paid && SpendingDisabled) return SpendingOff();
+                reply = await Post(authorization, method, url, payload, timeout, cancel);
             }
             return Read(kind, reply);
         }
 
-        async Task<HttpReply> Post(IAuthProvider auth, string method, string url, byte[] payload, double timeout, CancellationToken cancel)
+        static Result<JObject> SpendingOff() => Result<JObject>.Fail(ErrorKind.Local,
+            "Spending is turned off (SCENARIO_NO_SPEND=1 or the Scenario setting), so nothing was sent.", e => e.NotSent = true);
+
+        async Task<HttpReply> Post(string authorization, string method, string url, byte[] payload, double timeout, CancellationToken cancel)
         {
             var request = new HttpRequestSpec
             {
@@ -478,7 +491,7 @@ namespace Scenario.Editor.Core
                 // The credential goes to the API only, never to a host it redirects to.
                 FollowRedirects = false,
             };
-            request.Headers["Authorization"] = await auth.AuthorizationHeaderAsync();
+            request.Headers["Authorization"] = authorization;
             request.Headers["Accept"] = "application/json";
             request.Headers["User-Agent"] = UserAgent;
             return await Transport.SendAsync(request, cancel);
@@ -487,13 +500,15 @@ namespace Scenario.Editor.Core
         /// <summary>
         /// The API's authorizer refused the credential before the request reached Scenario:
         /// a 401, or a 403 whose body is only the reason "Forbidden" (expired or unknown
-        /// token). Refusals by Scenario itself carry another reason or an error name.
+        /// token). Refusals by Scenario itself carry another reason or an error name, and a
+        /// reply that names a job reached Scenario: it is never resent (nor its alarm lost).
         /// </summary>
         static bool IsAuthorizerRefusal(HttpReply reply)
         {
-            if (reply.Status == 401) return true;
-            if (reply.Status != 403) return false;
-            return Json.Parse(reply.Body ?? "") is JObject body && Json.Str(body, "reason") == "Forbidden" && body["name"] == null;
+            if (reply.Status != 401 && reply.Status != 403) return false;
+            var body = Json.Parse(reply.Body ?? "") as JObject;
+            if (CreatedJobId(body).Length > 0) return false;
+            return reply.Status == 401 || (body != null && Json.Str(body, "reason") == "Forbidden" && body["name"] == null);
         }
 
         static Result<JObject> Read(Kind kind, HttpReply reply)
@@ -571,9 +586,14 @@ namespace Scenario.Editor.Core
             return baseDelay * (0.5 + 0.5 * r);
         }
 
+        /// <summary>Retry-After as seconds from now, from a delay or an HTTP date; -1 when absent.</summary>
         static double RetryAfterSeconds(string raw)
         {
-            return double.TryParse((raw ?? "").Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? Math.Max(0, v) : -1;
+            var text = (raw ?? "").Trim();
+            if (double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v)) return Math.Max(0, v);
+            if (DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var date))
+                return Math.Max(0, (date - DateTimeOffset.UtcNow).TotalSeconds);
+            return -1;
         }
 
         static Result<T> Unwrap<T>(Result<JObject> result, string key) where T : JToken

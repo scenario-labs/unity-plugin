@@ -42,6 +42,15 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
+        public void OnlyANumberIsAPrice()
+        {
+            _server.Routes[Generate] = (args, i) => FakeApi.Json(new JObject { ["creativeUnitsCost"] = JValue.CreateNull() }, 269);
+            Assert.AreEqual(ErrorKind.Protocol, Run.Sync(_client.Estimate("m", new JObject())).Error.Kind, "a null price is not free");
+            _server.Routes[Generate] = (args, i) => FakeApi.Json(new JObject { ["creativeUnitsCost"] = 0 }, 269);
+            Assert.AreEqual(0, Run.Sync(_client.Estimate("m", new JObject())).Value.Cu, "zero is a price");
+        }
+
+        [Test]
         public void BasicAuthAndHeadersAreSentAndRedirectsAreNotFollowed()
         {
             _server.Routes["GET /models/{id}"] = (args, i) => FakeApi.Json(new JObject { ["model"] = new JObject { ["id"] = "m" } });
@@ -166,6 +175,9 @@ namespace Scenario.Editor.Tests
             var job = Run.Sync(_client.GetJob("job_x"));
             Assert.AreEqual(ErrorKind.RateLimit, job.Error.Kind);
             Assert.AreEqual(1, _server.Count("GET /jobs/{id}"));
+            _server.Routes["GET /jobs/{id}"] = (args, i) => FakeApi.Status(429, "", System.DateTimeOffset.UtcNow.AddMinutes(2).ToString("r"));
+            Assert.AreEqual(ErrorKind.RateLimit, Run.Sync(_client.GetJob("job_y")).Error.Kind);
+            Assert.AreEqual(2, _server.Count("GET /jobs/{id}"), "an HTTP date two minutes ahead stops too");
         }
 
         [Test]
@@ -266,6 +278,35 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
+        public void SpendingTurnedOffWhileTheHeaderRefreshesSendsNothing()
+        {
+            var auth = new StubAuth();
+            _client.SetAuth(auth);
+            _client.SetScope("t", "p");
+            // An expired token is refreshed while the header is read; the switch goes off meanwhile.
+            auth.OnHeader = () => _client.SpendingDisabled = true;
+            var result = Run.Sync(_client.Submit("m", new JObject()));
+            Assert.IsTrue(result.Error.NotSent);
+            Assert.AreEqual(0, _server.Requests.Count);
+        }
+
+        [Test]
+        public void ARefusalThatNamesAJobIsNotResent()
+        {
+            var auth = new StubAuth { RefreshWorks = true };
+            _client.SetAuth(auth);
+            _client.SetScope("t", "p");
+            _server.Routes[Generate] = (args, i) => i == 0
+                ? FakeApi.Status(403, "{\"reason\":\"Forbidden\",\"jobId\":\"job_oops\"}")
+                : FakeApi.Fixture("estimate.json", 269);
+            var price = Run.Sync(_client.Estimate("m", new JObject()));
+            Assert.AreEqual(ErrorKind.EstimateJob, price.Error.Kind, "a resend would lose the alarm");
+            Assert.AreEqual("job_oops", price.Error.JobId);
+            Assert.AreEqual(0, auth.Refreshes);
+            Assert.AreEqual(1, _server.Count(Generate));
+        }
+
+        [Test]
         public void AnAuthorizerRefusalWithoutARefreshIsAnAuthError()
         {
             var auth = new StubAuth { RefreshWorks = false };
@@ -347,6 +388,8 @@ namespace Scenario.Editor.Tests
             var schema = Run.Sync(_client.GetSchema("model_openai-gpt-image-2-5-flare")).Value;
             Assert.AreEqual("model_openai-gpt-image-2-5-flare", (string)schema["model_id"]);
             Assert.Greater(((JArray)schema["inputs"]).Count, 0);
+            _server.Routes["GET /models/{id}"] = (args, i) => FakeApi.Json(new JObject { ["id"] = "m" });
+            Assert.AreEqual(ErrorKind.Protocol, Run.Sync(_client.GetSchema("m")).Error.Kind, "a reply without its model is not a model without inputs");
         }
 
         [Test]
@@ -437,11 +480,16 @@ namespace Scenario.Editor.Tests
             public bool RefreshWorks;
             public int Refreshes;
             public System.Action OnRefresh;
+            public System.Action OnHeader;
             public AuthMethod Method => AuthMethod.OAuth;
             public bool HasCredentials => true;
             public bool NeedsScope => true;
             public string Label => "test";
-            public Task<string> AuthorizationHeaderAsync() => Task.FromResult("Bearer t" + Refreshes);
+            public Task<string> AuthorizationHeaderAsync()
+            {
+                OnHeader?.Invoke();
+                return Task.FromResult("Bearer t" + Refreshes);
+            }
             public Task<bool> RefreshAsync()
             {
                 Refreshes++;
@@ -460,6 +508,12 @@ namespace Scenario.Editor.Tests
             var plain = ApiClient.BaseUrlFrom(name => name == ApiClient.BaseUrlVariable ? "http://api.example.test/v1" : null);
             Assert.IsFalse(plain.Ok, "a bearer token never goes over plain HTTP");
             StringAssert.Contains(ApiClient.BaseUrlVariable, plain.Error.Message);
+            Assert.IsFalse(ApiClient.BaseUrlFrom(name => name == ApiClient.BaseUrlVariable ? "https://api.example.test/v1#x" : null).Ok, "paths would land in the fragment");
+            Assert.IsFalse(ApiClient.BaseUrlFrom(name => name == ApiClient.BaseUrlVariable ? "https://api.example.test/v1?a=b" : null).Ok);
+            // Set directly, an HTTP URL still gets no credential.
+            _client.BaseUrl = "http://api.example.test/v1";
+            Assert.IsTrue(Run.Sync(_client.GetModel("m")).Error.NotSent);
+            Assert.AreEqual(0, _server.Requests.Count);
         }
 
         [Test]
