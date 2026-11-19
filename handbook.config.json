@@ -1,0 +1,353 @@
+{
+  "product": "Scenario for Unity",
+  "brand": "for Unity",
+  "repository": "scenario-labs/unity-plugin",
+  "files": "scenario-unity",
+  "site": "https://unity.scenario.com",
+  "description": "User handbook for Scenario for Unity {version}: install, sign in, create images, video, 3D, motion, audio, materials and skyboxes, every 3D operation, agents, prices, jobs, files and troubleshooting.",
+  "version": {
+    "file": "Packages/com.scenario.unity/package.json",
+    "json": "version"
+  },
+  "media": "docs/images",
+  "analytics": "/page.js",
+  "cta": [
+    [
+      "Download for Unity 6",
+      "/download/latest"
+    ],
+    [
+      "Install from git URL",
+      "#install"
+    ]
+  ],
+  "nav": [
+    [
+      "Install",
+      "#install"
+    ],
+    [
+      "Sign in",
+      "#sign-in"
+    ],
+    [
+      "Downloads",
+      "#downloads"
+    ],
+    [
+      "Changelog",
+      "#changelog"
+    ]
+  ],
+  "cover": [
+    [
+      "Unity",
+      "6.0 and later, tested on 6.3 on macOS"
+    ]
+  ],
+  "downloads": [
+    "The git URL, for **Install package from git URL** as described in [Install](#install): `https://github.com/scenario-labs/unity-plugin.git?path=/Packages/com.scenario.unity`. Add `#unity-plugin-v{version}` to stay on this version.",
+    "The package: `com.scenario.unity-{version}.tgz` from [unity.scenario.com/download/latest](https://unity.scenario.com/download/latest), added with **Install package from tarball** as described in [Install](#install). Each release lists its SHA-256 in `SHA256SUMS`."
+  ],
+  "trademarks": "Unity is a trademark of Unity Technologies. This project is not affiliated with or endorsed by Unity Technologies.",
+  "fileNames": {
+    "AGENTS.md": "contributor guide",
+    "SUPPORT.md": "Support",
+    "SECURITY.md": "Security",
+    "CONTRIBUTING.md": "Contributing",
+    "ROADMAP.md": "Roadmap",
+    "Packages/com.scenario.unity/Documentation~/USER_GUIDE.md": "User Guide"
+  },
+  "chapters": [
+    {
+      "id": "how-it-works",
+      "title": "How it works",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "How it works"
+        }
+      ]
+    },
+    {
+      "id": "the-example",
+      "title": "The example",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "The example"
+        }
+      ],
+      "group": "Five steps"
+    },
+    {
+      "id": "generate-a-3d-model",
+      "title": "Generate a 3D model",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Generate a 3D model"
+        }
+      ],
+      "newPage": true
+    },
+    {
+      "id": "give-it-a-new-look",
+      "title": "Give it a new look",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Give it a new look"
+        }
+      ]
+    },
+    {
+      "id": "rig-and-animate-the-character",
+      "title": "Rig and animate the character",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Rig and animate the character"
+        }
+      ],
+      "newPage": true
+    },
+    {
+      "id": "dress-the-scene",
+      "title": "Dress the scene",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Dress the scene"
+        }
+      ]
+    },
+    {
+      "id": "hand-it-to-an-agent",
+      "title": "Hand it to an agent",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Hand it to an agent"
+        }
+      ],
+      "newPage": true
+    },
+    {
+      "id": "install",
+      "title": "Install",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Install"
+        }
+      ],
+      "part": [
+        "Reference",
+        "Install, prices, files, help"
+      ],
+      "newPage": true
+    },
+    {
+      "id": "downloads",
+      "title": "Downloads",
+      "generated": "downloads"
+    },
+    {
+      "id": "sign-in",
+      "title": "Sign in",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Sign in"
+        }
+      ]
+    },
+    {
+      "id": "the-window",
+      "title": "The window, top to bottom",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "The window, top to bottom"
+        }
+      ],
+      "newPage": true
+    },
+    {
+      "id": "prices",
+      "title": "Prices and spending",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Prices and spending"
+        }
+      ]
+    },
+    {
+      "id": "jobs",
+      "title": "Jobs",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Jobs"
+        }
+      ]
+    },
+    {
+      "id": "library-and-workflows",
+      "title": "Library and workflows",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Library and workflows"
+        }
+      ]
+    },
+    {
+      "id": "where-results-go",
+      "title": "Where results go",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Where results go"
+        }
+      ]
+    },
+    {
+      "id": "settings",
+      "title": "Settings",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Settings"
+        }
+      ]
+    },
+    {
+      "id": "what-leaves-your-machine",
+      "title": "What leaves your machine",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "What leaves your machine"
+        }
+      ]
+    },
+    {
+      "id": "troubleshooting",
+      "title": "Troubleshooting",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Troubleshooting"
+        }
+      ],
+      "newPage": true
+    },
+    {
+      "id": "known-limits",
+      "title": "Known limits",
+      "parts": [
+        {
+          "file": "docs/HANDBOOK.md",
+          "section": "Known limits"
+        }
+      ]
+    },
+    {
+      "id": "changelog",
+      "title": "Changelog",
+      "newPage": true,
+      "parts": [
+        {
+          "file": "Packages/com.scenario.unity/CHANGELOG.md"
+        }
+      ]
+    },
+    {
+      "id": "licence",
+      "title": "Licence",
+      "generated": "licence",
+      "parts": [
+        {
+          "file": "README.md",
+          "section": "License"
+        }
+      ]
+    }
+  ],
+  "intro": {
+    "file": "docs/HANDBOOK.md"
+  },
+  "flow": {
+    "from": {
+      "label": "From your project",
+      "items": [
+        [
+          "A prompt",
+          "#generate-a-3d-model"
+        ],
+        [
+          "An image or a capture",
+          "#from-a-picture-instead"
+        ],
+        [
+          "A model in the scene",
+          "#give-it-a-new-look"
+        ],
+        [
+          "A character",
+          "#rig-and-animate-the-character"
+        ],
+        [
+          "A terrain or an empty scene",
+          "#dress-the-scene"
+        ]
+      ]
+    },
+    "models": {
+      "label": "Scenario models",
+      "items": [
+        [
+          "Text or image to 3D",
+          "#generate-a-3d-model"
+        ],
+        [
+          "Retexture, remesh, parts",
+          "#give-it-a-new-look"
+        ],
+        [
+          "Rig, motion library, text to motion",
+          "#rig-and-animate-the-character"
+        ],
+        [
+          "Material, skybox, audio, video",
+          "#dress-the-scene"
+        ]
+      ],
+      "note": "Priced on the button before you click."
+    },
+    "to": {
+      "label": "Back in Unity",
+      "items": [
+        [
+          "A prefab on the ground"
+        ],
+        [
+          "A new version next to the original"
+        ],
+        [
+          "A character that walks in Play mode"
+        ],
+        [
+          "A material, a sky, a sound, a sprite"
+        ]
+      ]
+    },
+    "note": "Each placement is one Undo step."
+  },
+  "og": {
+    "picture": "docs/images/hero.jpg"
+  }
+}

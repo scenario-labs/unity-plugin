@@ -3,16 +3,15 @@
 </p>
 <h1 align="center">Scenario for Unity</h1>
 <p align="center">
-  <!-- x-release-please-start-version -->
-  <img alt="Version 0.2.0"
-    src="https://img.shields.io/static/v1?label=version&message=0.2.0&color=black">
-  <!-- x-release-please-end -->
+  <img alt="Version"
+    src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fscenario-labs%2Funity-plugin%2Fmain%2FPackages%2Fcom.scenario.unity%2Fpackage.json&query=%24.version&label=version&color=black">
   <img alt="Unity 6.0 and later" src="https://img.shields.io/badge/Unity-6.0%2B-black?logo=unity">
   <img alt="Render pipelines" src="https://img.shields.io/badge/pipelines-Built--in%20%C2%B7%20URP%20%C2%B7%20HDRP-555">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
   <a href="https://docs.scenario.com"><img alt="API documentation" src="https://img.shields.io/badge/documentation-api-black.svg"></a>
   <a href="https://help.scenario.com"><img alt="App documentation" src="https://img.shields.io/badge/documentation-app-black.svg"></a>
   <a href="https://mcp.scenario.com/docs"><img alt="MCP documentation" src="https://img.shields.io/badge/documentation-mcp-black.svg"></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/scenario-labs/unity-plugin"><img alt="OpenSSF Scorecard" src="https://api.scorecard.dev/projects/github.com/scenario-labs/unity-plugin/badge"></a>
 </p>
 
 Every [Scenario](https://scenario.com) model inside the Unity Editor: images, video, 3D models, character animation, audio, PBR materials and skyboxes. A 3D model can then be retextured, edited with a prompt, remeshed, rigged, animated or split into parts without leaving Unity. Each request shows its price before anything is spent, and each result lands in the project as a wired Unity asset: a prefab on the ground at the Scene view pivot, a sprite on the selected renderer, a material on the selected mesh, an animated character with its Animator Controller, the scene's skybox. AI agents (Claude Code, Codex, Cursor, VS Code) drive the same actions through a local MCP server in the editor.
@@ -53,21 +52,30 @@ Every image below is a real Scenario result, imported by the plugin and rendered
 
 ## Install
 
-Unity 6.0 or later. Tested on Unity 6.3 (6000.3.21f1) on macOS, with URP and with the Built-in pipeline. Editor only: nothing from the package ships in a player build.
+Unity 6.0 or later. Tested on Unity 6.3 on macOS, with URP and with the Built-in pipeline. Editor only: nothing from the package ships in a player build.
 
 1. In Unity, open **Window > Package Management > Package Manager**, press **+** and choose **Install package from git URL**.
 2. Paste:
    ```
    https://github.com/scenario-labs/unity-plugin.git?path=/Packages/com.scenario.unity
    ```
-   Add `#unity-plugin-v0.2.0` at the end to pin a release. <!-- x-release-please-version --> The package pulls in glTFast (Unity's GLB importer) and Newtonsoft JSON.
+   Add `#unity-plugin-vX.Y.Z` at the end to pin a [release](https://github.com/scenario-labs/unity-plugin/releases). The package pulls in glTFast (Unity's GLB importer) and Newtonsoft JSON.
 3. Open **Window > Scenario** (Alt+Shift+S).
+
+**Install package from tarball** instead, with no git on your machine (releases from 0.3.0 on):
+
+1. Download `com.scenario.unity-<version>.tgz` from the [latest release](https://github.com/scenario-labs/unity-plugin/releases/latest). Its `SHA256SUMS` and a build attestation are listed beside it: `gh attestation verify com.scenario.unity-<version>.tgz -R scenario-labs/unity-plugin`.
+2. Move the file into your project's `Packages/` folder. Unity reads the package from that file for as long as the project uses it, so keep it there; inside the project it travels with it under version control.
+3. In the Package Manager, press **+**, choose **Install package from tarball** and pick the file. Or add `"com.scenario.unity": "file:com.scenario.unity-<version>.tgz"` to the `dependencies` of `Packages/manifest.json`.
+
+To update, install a newer release's tarball the same way, then delete the old file.
 
 **Earlier plugin.** This package replaces the earlier Scenario plugin for Unity (`com.scenarioinc.scenario`, v0.11.0 and before), which is no longer maintained. Remove it in the Package Manager, then install this one. Its code stays on the [`legacy`](https://github.com/scenario-labs/unity-plugin/tree/legacy) branch and under its `v0.x` tags, so an old install pinned with `?path=/package#v0.11.0` still resolves.
 
 ## Sign in
 
 - **Sign in with Scenario** opens your browser. Approve, go back to Unity, pick a team and a project: generations are billed to that project. Switch it later from the header.
+- **Sign in on another device** shows a code, for a browser that cannot reach Unity on this machine (a remote desktop, a locked-down computer): open the page on any device, enter the code and approve. Not available yet: until Scenario turns it on for Unity, sign in with the browser or an API key.
 - **Use an API key instead**: paste the key and secret from the Scenario web app (or `key:secret` in one go). The key is tied to one project.
 - **CI and batch mode**: set `SCENARIO_API_KEY` and `SCENARIO_API_SECRET`.
 
@@ -209,7 +217,7 @@ Example, tested with Claude Code: *"Check that you are signed in, find a sword a
 
 **Ask from inside Unity.** Type a request in the **Ask** field of the Scene view panel or the Agent view ("make the bridge rustier", "add 20 pines around the temple"). The plugin runs your Claude Code against the bridge with the selection, and shows each tool call, the answer and any approval it waits for; **Stop** ends it. The command palette has **Ask Claude** too. It needs Claude Code installed and signed in; everything else works without it.
 
-The hosted [Scenario MCP](https://mcp.scenario.com/docs) covers the platform without Unity (collections, training, usage). Connect both when needed.
+The hosted [Scenario MCP](https://mcp.scenario.com/docs) is a separate server that covers the platform without Unity (collections, training, usage); the plugin does not need it, and its tool names differ from these. Connect both when needed.
 
 </td>
   </tr>
@@ -270,8 +278,10 @@ The window tests need a graphics device and are skipped under `-nographics`. Liv
 - `ScenarioDev.ContractCheck.Run` (free, needs `SCENARIO_NO_SPEND=1`) prices every quick pick, every 3D step and a set of workflows.
 - `ScenarioDev.Acceptance.Run` (paid, needs `SCENARIO_ACCEPT=1`) runs one generation per type and records it in `tests/live/LEDGER.md`.
 - `ScenarioDev.Accept3D.Import` (free) imports one real result of each 3D operation and checks the model, its rig and its clips, with a render of each; `ScenarioDev.Accept3D.Paid` sends a few 3D operations through the window's and the agent's paths.
-- `ScenarioDev.E2E.OAuth` checks the browser sign-in (a person signs in); `ScenarioDev.E2E.Agent` with `tools/e2e_agent.py` has Claude Code drive the editor through the agent bridge.
+- `ScenarioDev.E2E.OAuth` checks the browser sign-in (a person signs in); `ScenarioDev.E2E.Device` and `ScenarioDev.E2E.Browser` sign in through the window, then `ScenarioDev.E2E.Resume` in a new editor checks the session comes back, refreshes and signs out; `ScenarioDev.E2E.Agent` with `tools/e2e_agent.py` has Claude Code drive the editor through the agent bridge.
 - `ScenarioDev.Media.Run` renders the turntables and animations above, and `tools/build_media.py` turns them into the GIFs.
+
+To sign in against a development instance, set `SCENARIO_OAUTH_ISSUER` (HTTPS) and `SCENARIO_OAUTH_CLIENT_ID` together, with `SCENARIO_API_URL` naming that instance's API. Without them, the editor signs in as the production Unity application.
 
 ## License
 

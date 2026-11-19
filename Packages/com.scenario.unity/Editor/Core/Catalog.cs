@@ -121,7 +121,7 @@ namespace Scenario.Editor.Core
         }
 
         /// <summary>Fetches public and private trained models. Keeps the old list when the public fetch fails.</summary>
-        public async Task<Result<int>> Refresh(McpClient client, string scope, double now, CancellationToken cancel = default)
+        public async Task<Result<int>> Refresh(ApiClient client, string scope, double now, CancellationToken cancel = default)
         {
             var publicModels = await FetchAll(client, "public", MaxPublicPages, cancel);
             if (!publicModels.Ok) return publicModels.Cast<int>();
@@ -138,7 +138,7 @@ namespace Scenario.Editor.Core
             return Result<int>.Success(Models.Count);
         }
 
-        static async Task<Result<List<ModelInfo>>> FetchAll(McpClient client, string privacy, int maxPages, CancellationToken cancel)
+        static async Task<Result<List<ModelInfo>>> FetchAll(ApiClient client, string privacy, int maxPages, CancellationToken cancel)
         {
             var models = new List<ModelInfo>();
             var token = "";

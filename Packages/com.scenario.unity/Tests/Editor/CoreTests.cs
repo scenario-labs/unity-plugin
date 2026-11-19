@@ -11,26 +11,6 @@ namespace Scenario.Editor.Tests
     public class SseAndJsonTests
     {
         [Test]
-        public void TheLastMatchingMessageWins()
-        {
-            var body = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\n\n"
-                + "data: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"a\":1}}\n\n"
-                + "data: not json\n\n"
-                + "data: {\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"a\":2}}\n\n";
-            var parsed = Sse.Parse(body, "text/event-stream", 7);
-            Assert.IsTrue(parsed.Ok);
-            Assert.AreEqual(2, (int)parsed.Value["result"]["a"]);
-        }
-
-        [Test]
-        public void AMissingReplyIsAProtocolError()
-        {
-            var parsed = Sse.Parse("data: {\"id\":3,\"result\":{}}\n\n", "text/event-stream", 4);
-            Assert.AreEqual(ErrorKind.Protocol, parsed.Error.Kind);
-            Assert.IsTrue(Sse.Parse("", "", null).Ok, "a notification may have an empty body");
-        }
-
-        [Test]
         public void CanonicalJsonIgnoresKeyOrderAndWholeFloats()
         {
             var a = JObject.Parse("{\"b\":2.0,\"a\":{\"y\":1,\"x\":[1,2]}}");
@@ -104,7 +84,7 @@ namespace Scenario.Editor.Tests
             var created = Json.IsoToUnix("2026-10-02T21:22:13.168Z");
             var row = ledger.AddIntent("video", "model_bytedance-seedance-2-5", "Seedance", new JObject(), "fp", 444, created - 2);
             ledger.MarkUnknown(row.LocalId, "lost", created);
-            var jobs = (JArray)Fixtures.Structured("jobs.sse.txt")["jobs"];
+            var jobs = new JArray(((JArray)Fixtures.Body("jobs.json")["jobs"]).OfType<JObject>().Select(ApiClient.Flatten));
             var linked = ledger.Reconcile(jobs, created + 10);
             var matches = jobs.Count(j => (string)j["modelId"] == "model_bytedance-seedance-2-5"
                 && System.Math.Abs(Json.IsoToUnix((string)j["createdAt"]) - created) < JobLedger.ReconcileWindowSeconds);
@@ -126,7 +106,7 @@ namespace Scenario.Editor.Tests
             var ledger = new JobLedger(_path);
             var row = ledger.AddIntent("image", "m", "M", new JObject(), "fp", 14, 1);
             ledger.MarkSubmitted(row.LocalId, "job_test00000000000000000001", "queued", 2);
-            var job = (JObject)Fixtures.Structured("job.sse.txt")["job"];
+            var job = ApiClient.Flatten((JObject)Fixtures.Body("job.json")["job"]);
             ledger.ApplyJob(job, 3);
             Assert.AreEqual(JobState.Success, row.State);
             Assert.AreEqual(14, row.ChargedCu);
@@ -193,10 +173,13 @@ namespace Scenario.Editor.Tests
 
     public class SchemaFormTests
     {
+        /// <summary>A recorded GET /models/{id} body's model: the shape the form reads.</summary>
+        static JObject Model(string fixture) => (JObject)Fixtures.Body(fixture)["model"];
+
         [Test]
         public void FlareSchemaPutsThePromptFirst()
         {
-            var fields = SchemaForm.FieldsFromSchema(Fixtures.Structured("schema_flare.sse.txt"), OutputTypes.Restrict);
+            var fields = SchemaForm.FieldsFromSchema(Model("schema_flare.json"), OutputTypes.Restrict);
             Assert.AreEqual("prompt", fields[0].Name);
             Assert.AreEqual(FieldType.Prompt, fields[0].Type);
             Assert.AreEqual("prompt", SchemaForm.PromptName(fields));
@@ -210,35 +193,46 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
-        public void PromptSpark_IsReadFromThePromptField_AsTheServerSendsIt()
+        public void PromptSpark_IsReadFromThePromptInput()
         {
-            // model_schema_get flags Spark on the field and in prompting.prompt_spark_fields, not at the top.
-            var schema = Fixtures.Structured("schema_flare.sse.txt");
-            Assert.IsNull(schema["prompt_spark"]);
+            // The API flags Spark on the prompt input.
+            var schema = Model("schema_flare.json");
             Assert.IsTrue(SchemaForm.SparkAvailable(schema, SchemaForm.FieldsFromSchema(schema, OutputTypes.Restrict)));
 
-            var listedOnly = JObject.Parse(@"{""parameters"":[{""name"":""prompt"",""type"":""string"",""prompt"":true}],""prompting"":{""prompt_spark_fields"":[""prompt""]}}");
-            Assert.IsTrue(SchemaForm.SparkAvailable(listedOnly, SchemaForm.FieldsFromSchema(listedOnly)));
-
-            var none = JObject.Parse(@"{""parameters"":[{""name"":""prompt"",""type"":""string"",""prompt"":true}]}");
+            var none = JObject.Parse(@"{""inputs"":[{""name"":""prompt"",""type"":""string"",""prompt"":true}]}");
             Assert.IsFalse(SchemaForm.SparkAvailable(none, SchemaForm.FieldsFromSchema(none)));
-            var noPrompt = JObject.Parse(@"{""prompt_spark"":true,""parameters"":[{""name"":""model"",""type"":""file"",""kind"":""3d""}]}");
+            var noPrompt = JObject.Parse(@"{""inputs"":[{""name"":""model"",""type"":""file"",""kind"":""3d"",""promptSpark"":true}]}");
             Assert.IsFalse(SchemaForm.SparkAvailable(noPrompt, SchemaForm.FieldsFromSchema(noPrompt)), "nothing to rewrite");
+        }
+
+        [Test]
+        public void RequiredIsTheAlwaysRule()
+        {
+            var schema = JObject.Parse(@"{""inputs"":[
+                {""name"":""prompt"",""type"":""string"",""prompt"":true,""required"":{""always"":true},""maxLength"":20},
+                {""name"":""referenceImages"",""type"":""file_array"",""kind"":""image"",""maxLength"":4,""required"":{""ifDefined"":{""mask"":{""message"":""needs an image""}}}},
+                {""name"":""seed"",""type"":""number""}]}");
+            var fields = SchemaForm.FieldsFromSchema(schema);
+            Assert.IsTrue(fields.Single(f => f.Name == "prompt").Required);
+            Assert.AreEqual(20, fields.Single(f => f.Name == "prompt").MaxLength);
+            Assert.IsFalse(fields.Single(f => f.Name == "referenceImages").Required, "only required when another input is set");
+            Assert.AreEqual(4, fields.Single(f => f.Name == "referenceImages").MaxItems);
+            Assert.IsFalse(fields.Single(f => f.Name == "seed").Required);
         }
 
         [Test]
         public void PatinaSchemaHasItsFields()
         {
-            var fields = SchemaForm.FieldsFromSchema(Fixtures.Structured("schema_patina.sse.txt"));
+            var fields = SchemaForm.FieldsFromSchema(Model("schema_patina.json"));
             Assert.AreEqual("prompt", fields[0].Name);
             Assert.IsTrue(fields.Any(f => f.IsFile));
         }
 
         [Test]
-        public void WorkflowInputsDefinitionBecomesTheForm()
+        public void WorkflowInputsBecomeTheForm()
         {
-            // The shape workflow_get returned on 2026-10-18.
-            var workflow = JObject.Parse(@"{""id"":""wflow_x"",""inputs_definition"":[
+            // The shape GET /workflows/{id} returns.
+            var workflow = JObject.Parse(@"{""id"":""wflow_x"",""inputs"":[
                 {""kind"":""image"",""label"":""Character Reference"",""name"":""image1"",""required"":{""always"":true},""type"":""file""},
                 {""kind"":""image"",""label"":""Style"",""name"":""image2"",""required"":{""always"":false},""type"":""file_array""},
                 {""label"":""Tagline"",""name"":""text1"",""prompt"":true,""promptSpark"":true,""required"":{""always"":false},""type"":""string""}]}");
@@ -262,13 +256,13 @@ namespace Scenario.Editor.Tests
         [Test]
         public void ValidationAndPayloadTyping()
         {
-            var schema = JObject.Parse(@"{""parameters"":[
-                {""name"":""prompt"",""type"":""string"",""required"":true,""prompt"":true},
+            var schema = JObject.Parse(@"{""inputs"":[
+                {""name"":""prompt"",""type"":""string"",""required"":{""always"":true},""prompt"":true},
                 {""name"":""numOutputs"",""type"":""number"",""min"":1,""max"":4,""step"":1,""default"":1},
                 {""name"":""guidance"",""type"":""number"",""min"":0,""max"":10},
-                {""name"":""audioFormat"",""type"":""string"",""allowed_values"":[""flac"",""wav"",""mp3""],""default"":""flac""},
+                {""name"":""audioFormat"",""type"":""string"",""allowedValues"":[""flac"",""wav"",""mp3""],""default"":""flac""},
                 {""name"":""loop"",""type"":""boolean""},
-                {""name"":""images"",""type"":""file_array"",""kind"":""image"",""max_length"":2}]}");
+                {""name"":""images"",""type"":""file_array"",""kind"":""image"",""maxLength"":2}]}");
             var fields = SchemaForm.FieldsFromSchema(schema, OutputTypes.Restrict);
             var audio = fields.Single(f => f.Name == "audioFormat");
             CollectionAssert.AreEqual(new[] { "wav", "mp3" }, audio.Options.Select(o => (string)o));
@@ -353,7 +347,7 @@ namespace Scenario.Editor.Tests
         Catalog CatalogFromFixture()
         {
             var catalog = new Catalog("");
-            foreach (var row in (JArray)Fixtures.Structured("models_page.sse.txt")["models"])
+            foreach (var row in (JArray)Fixtures.Body("models_page.json")["models"])
                 catalog.Models.Add(ModelInfo.FromJson((JObject)row));
             return catalog;
         }
@@ -405,16 +399,17 @@ namespace Scenario.Editor.Tests
         [Test]
         public void RefreshPagesAndKeepsPrivateModels()
         {
-            var server = new FakeMcp();
-            server.Tools["models_list"] = (args, i) =>
+            var server = new FakeApi();
+            server.Routes["GET /models"] = (args, i) =>
             {
-                var privacy = (string)args["filters"]["privacy"];
+                Assert.AreEqual("trained", (string)args["status"]);
+                var privacy = (string)args["privacy"];
                 if (privacy == "private")
-                    return FakeMcp.Result(new JObject { ["models"] = new JArray(new JObject { ["id"] = "model_mine", ["name"] = "Mine", ["privacy"] = "private", ["capabilities"] = new JArray("txt2img"), ["type"] = "flux.1-lora" }) });
-                if (args["page_token"] == null) return FakeMcp.Fixture("models_page.sse.txt");
-                return FakeMcp.Result(new JObject { ["models"] = new JArray(new JObject { ["id"] = "model_page2", ["name"] = "Second page", ["capabilities"] = new JArray("txt2img") }) });
+                    return FakeApi.Json(new JObject { ["models"] = new JArray(new JObject { ["id"] = "model_mine", ["name"] = "Mine", ["privacy"] = "private", ["capabilities"] = new JArray("txt2img"), ["type"] = "flux.1-lora" }) });
+                if (args["paginationToken"] == null) return FakeApi.Fixture("models_page.json");
+                return FakeApi.Json(new JObject { ["models"] = new JArray(new JObject { ["id"] = "model_page2", ["name"] = "Second page", ["capabilities"] = new JArray("txt2img") }) });
             };
-            var client = new McpClient(server, new ApiKeyAuth("k", "s"));
+            var client = new ApiClient(server, new ApiKeyAuth("k", "s"));
             var catalog = new Catalog("");
             var result = Run.Sync(catalog.Refresh(client, "scope", 10));
             Assert.IsTrue(result.Ok, result.Error?.Message);

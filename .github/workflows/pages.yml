@@ -1,0 +1,100 @@
+# GitHub Pages publish for https://unity.scenario.com: the handbook built from
+# the docs (handbook.config.json) at the root, and the latest release's
+# tarball under /download/, by scenario-labs/components, the site tooling the
+# Scenario plug-ins share. Runs after each release, on every push to main that
+# changes the docs, and by hand. The handbook comes from the newest published
+# release, so the site never describes a feature people cannot install yet.
+# Pages serves it at https://scenario-labs.github.io/unity-plugin/; the Vercel
+# project on tools/site_proxy holds unity.scenario.com and forwards every path
+# there. Set once by an administrator:
+#   1. Repository Settings > Pages: Source "GitHub Actions" and no custom
+#      domain: one would make Pages redirect the proxy's requests back to it.
+#   2. Vercel (scenario-labs): project unity-plugin-site, Root Directory
+#      tools/site_proxy, framework Other, no build or install command,
+#      production branch main, Ignored Build Step
+#      `git diff --quiet HEAD^ HEAD -- .`, Web Analytics on, and the domain
+#      unity.scenario.com. tools/site_proxy holds only vercel.json and
+#      middleware.ts: Vercel would serve any other file there instead of
+#      forwarding its path. The middleware counts downloads in PostHog with
+#      POSTHOG_PROJECT_TOKEN (none: no count), POSTHOG_HOST (US cloud by
+#      default) and SITE_ORIGIN (this Pages address by default) from the
+#      project's environment.
+#   3. DNS for scenario.com (Route 53, scenario-labs/management): CNAME unity
+#      to the target Vercel shows for that domain.
+name: Publish site
+
+on:
+  # workflow_run is safe here: the build checks out main, never the
+  # triggering run's head_sha, uses none of its artifacts, keeps no
+  # credentials, and runs only after a successful push run on main. Not the
+  # release event: its ref is the tag, and the github-pages environment only
+  # accepts deployments from main.
+  workflow_run:
+    workflows: [release-please]
+    types: [completed]
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - "README.md"
+      - "docs/**"
+      - "Packages/com.scenario.unity/CHANGELOG.md"
+      - "handbook.config.json"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Only this repository publishes, and only after a release run that
+    # succeeded on a push to main.
+    if: >-
+      github.repository == 'scenario-labs/unity-plugin' &&
+      (github.event_name != 'workflow_run' ||
+       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # The handbook from the newest release's docs, and its tarball once the
+      # release's SHA256SUMS and build attestation verify. The tarball is
+      # served at download/com.scenario.unity-X.Y.Z.tgz, where the Vercel
+      # middleware counts downloads; download/latest.json names its version
+      # and /download/latest redirects to it.
+      - id: site
+        uses: scenario-labs/components@dc4d1c4246a992432bd64af4f093e2558a6ca9b1 # v0.1.0
+        with:
+          download: com.scenario.unity-{version}.tgz
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ steps.site.outputs.path }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

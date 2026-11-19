@@ -1,0 +1,108 @@
+name: publish-changelog
+
+# Posts a GitHub release's notes to the public changelog at
+# www.scenario.com/changelog, as blender-plugin, godot-plugin and
+# photoshop-plugin do; they show under Plugins as "Plugins - Unity".
+#
+# This lives off the `release: published` event rather than inside
+# release-please.yml so a failed POST stays recoverable: a failure fails this
+# job visibly, "Re-run jobs" retries it, and workflow_dispatch republishes any
+# published tag by hand. Existing entries are skipped, even when their
+# processing failed; check the website entry before treating a rerun as
+# recovery. The release is published with the release App's token, so the
+# event starts this workflow (GitHub starts none from GITHUB_TOKEN events).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish, for example unity-plugin-v0.3.0"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-changelog-${{ github.event.release.tag_name || github.event.inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    # Forks hold neither the ingest secret nor the releases this reads. Tags of
+    # the earlier plugin (v0.x, no component) are not this package's releases.
+    if: >-
+      github.repository == 'scenario-labs/unity-plugin' &&
+      startsWith(github.event.release.tag_name || github.event.inputs.tag, 'unity-plugin-v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Publish release notes to www.scenario.com
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name || github.event.inputs.tag }}
+          CHANGELOG_INGEST_SECRET: ${{ secrets.CHANGELOG_INGEST_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CHANGELOG_INGEST_SECRET:-}" ]; then
+            echo "::error::CHANGELOG_INGEST_SECRET is not set for this repository"
+            exit 1
+          fi
+
+          temp_dir="$(mktemp -d)"
+          trap 'rm -rf "$temp_dir"' EXIT
+          body="$temp_dir/body"
+          payload="$temp_dir/payload"
+          response="$temp_dir/response"
+          gh release view "$TAG" --json body,isDraft,isPrerelease > "$temp_dir/release"
+          if ! jq -e '.isDraft == false and .isPrerelease == false' "$temp_dir/release" > /dev/null; then
+            echo "::error::Only published stable releases can enter the public changelog"
+            exit 1
+          fi
+          jq -r .body "$temp_dir/release" > "$body"
+
+          # release-please notes carry one "### " section per change type. A
+          # release made or edited by hand can lack them; post no empty entry.
+          if ! grep -q '^### ' "$body"; then
+            echo "::notice::$TAG has no changelog sections, nothing to publish"
+            exit 0
+          fi
+
+          jq -Rs --arg repo unity-plugin '{repo: $repo, changelog: .}' < "$body" > "$payload"
+
+          # The bearer token reaches curl on stdin through --config: as a -H
+          # argument it would sit in this process's argv, readable by anything
+          # else on the runner through /proc/*/cmdline.
+          printf 'header = "Authorization: Bearer %s"\n' "$CHANGELOG_INGEST_SECRET" \
+            | curl --config - \
+              --silent --show-error --location --fail-with-body \
+              --max-time 30 \
+              --output "$response" \
+              --request POST https://www.scenario.com/api/changelog/ingest \
+              --header "Content-Type: application/json" \
+              --data-binary "@$payload"
+
+          # The answer lists queued and skipped versions. HTTP 200 can still
+          # carry processing errors, and queuing is asynchronous: an existing
+          # record may still be processing or have failed, not be published.
+          version="${TAG#unity-plugin-v}"
+          version="${version#v}"
+          if ! jq -e --arg version "$version" '
+            try (
+              (.queued | type == "array") and (.skipped | type == "array") and
+              ((.queued + .skipped) | length == 1) and
+              all(.queued[]; .version == $version and .action == "create" and (.entryId | type == "number")) and
+              all(.skipped[]; .version == $version and .reason == "already exists" and (.entryId | type == "number"))
+            ) catch false
+          ' "$response" > /dev/null; then
+            echo "::error::Changelog ingest did not acknowledge this version; check the changelog before retrying"
+            exit 1
+          fi
+
+          if jq -e '.queued | length == 1' "$response" > /dev/null; then
+            echo "Queued $TAG for changelog processing; check that it shows on www.scenario.com/changelog"
+          else
+            echo "::warning::$TAG already exists; check its processing and that it shows on www.scenario.com/changelog"
+          fi

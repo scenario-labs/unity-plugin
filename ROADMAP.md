@@ -9,5 +9,5 @@ What comes after 0.1.0, roughly in order. Issues track the details.
 - **Gaussian splat display.** Splats are saved as files; showing them needs a splat renderer package.
 - **Last results in the Scene view panel.** The panel has the selection's steps, scene actions and Ask; a quick prompt that generates from it, and the latest results, would follow.
 - **Generation history per asset**, beyond the Inspector header.
-- **Balance in the header** once the Scenario MCP exposes it to every credential type. Today the header shows the plan and what this editor spent today.
+- **Balance in the header** once the API exposes it to every credential type. Today the header shows the plan and what this editor spent today.
 - **Asset Store packaging.**

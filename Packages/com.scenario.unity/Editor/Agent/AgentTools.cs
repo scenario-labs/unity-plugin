@@ -43,7 +43,7 @@ namespace Scenario.Editor.Agent
 
         public const string Instructions =
             "Scenario for Unity: generate images, video, 3D models, audio, PBR materials and skyboxes with Scenario models and put them in the open Unity project. " +
-            "Flow: scenario_status, then models_find (add recommend_for_prompt to get Scenario's ranked picks), model_schema, estimate (free), generate (paid: it waits, imports and places the result, and returns Unity asset paths and scene object paths). " +
+            "Flow: scenario_status, then models_find (add recommended for Scenario's picks), model_schema, estimate (free), generate (paid: it waits, imports and places the result, and returns Unity asset paths and scene object paths). " +
             "Then capture_view to look at the scene. Inputs that take files accept Scenario asset ids or Unity asset paths (Assets/...), uploaded for you. " +
             "Money rules: a paid call is never retried by the bridge. If generate reports an unknown outcome, call jobs instead of generating again. Calls above the user's limit wait for approval in Unity. " +
             "No call blocks longer than 45 s: slow work (3D, video, audio, a long playtest) answers \"still running\" and names the call that follows it (jobs or play status, with wait_seconds). " +
@@ -196,12 +196,12 @@ namespace Scenario.Editor.Agent
                 new Tool
                 {
                     Name = "models_find", ReadOnly = true,
-                    Description = "Find Scenario models. Search the catalog by text, output type and capability, or pass recommend_for_prompt to get Scenario's ranked recommendation with cost and speed notes.",
+                    Description = "Find Scenario models. Search the catalog by text, output type and capability, or pass recommended for Scenario's recommended models for the capability.",
                     Schema = Schema(None,
                         ("query", Str("Words to match: name, provider, style.")),
                         ("output_type", Str("image, video, model3d, motion, audio, material, skybox or all.", Types)),
                         ("capability", Str("txt2img, img2img, txt2video, img2video, video2video, txt23d, img23d, 3d23d, txt2audio, audio2audio, video2audio.")),
-                        ("recommend_for_prompt", Str("A prompt: returns Scenario's ranked picks for it (free).")),
+                        ("recommended", Bool("Scenario's recommended models for the capability or output type (free).")),
                         ("include_legacy", Bool("Include deprecated models.")),
                         ("sort", Str("relevance (default) or newest: the most recently added models first.", "relevance", "newest")),
                         ("limit", Int("Max results, default 15."))),
@@ -596,13 +596,21 @@ namespace Scenario.Editor.Agent
             var limit = Math.Max(1, Math.Min(50, I_(args, "limit", 15)));
             var type = S_(args, "output_type");
             var capability = S_(args, "capability");
-            var prompt = S_(args, "recommend_for_prompt");
-            if (prompt.Length > 0)
+            if (B_(args, "recommended", false))
             {
+                // The API recommends by capability. A family such as motion shares its capabilities with
+                // other models (txt23d, video23d), so its own quick picks are the recommendation.
+                var family = type.Length > 0 && capability.Length == 0 && OutputTypes.Get(type).Family != null;
+                if (family)
+                    return Ok(new JObject
+                    {
+                        ["output_type"] = type,
+                        ["ranked"] = new JArray(OutputTypes.Get(type).QuickPicks.Take(limit).Select((id, i) => new JObject { ["rank"] = i + 1, ["model_id"] = id, ["name"] = S.Model(id)?.Name ?? id })),
+                    });
                 var cap = capability.Length > 0 ? capability : CapabilityFor(type);
-                var result = await S.Recommend(cap, prompt, Math.Min(limit, 5));
+                var result = await S.Recommend(cap, Math.Min(limit, 10));
                 if (!result.Ok) throw new ToolError(result.Error.Message);
-                return Ok(new JObject { ["capability"] = cap, ["rationale"] = result.Value["rationale"], ["ranked"] = result.Value["ranked"] });
+                return Ok(new JObject { ["capability"] = cap, ["ranked"] = result.Value["ranked"] });
             }
             if (S.Catalog.IsEmpty) await S.RefreshCatalog(false);
             IEnumerable<ModelInfo> models = S.Catalog.Search(new Catalog.Query
@@ -630,7 +638,7 @@ namespace Scenario.Editor.Agent
             }));
             var data = new JObject { ["models"] = list };
             if (type.Length > 0) data["quick_picks"] = new JArray(OutputTypes.Get(type).QuickPicks);
-            if (list.Count == 0) data["hint"] = S.Catalog.IsEmpty ? "The catalog is empty: " + S.CatalogError : "Nothing matched. Try fewer words, or recommend_for_prompt.";
+            if (list.Count == 0) data["hint"] = S.Catalog.IsEmpty ? "The catalog is empty: " + S.CatalogError : "Nothing matched. Try fewer words, or recommended.";
             return Ok(data);
         }
 

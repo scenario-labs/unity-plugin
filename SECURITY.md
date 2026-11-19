@@ -22,8 +22,9 @@ through the same private channel.
 
 ## Scope
 
-This repository ships Scenario for Unity, an editor package. It stores Scenario
-credentials, calls the Scenario MCP server at `mcp.scenario.com`, downloads
+This repository ships Scenario for Unity, an editor package. It signs in
+through Scenario's identity provider at `clerk.scenario.com`, stores Scenario
+credentials, calls Scenario's API at `api.cloud.scenario.com`, downloads
 generated files and imports them into the open project, and can serve a local
 MCP server to AI agents. Relevant reports include:
 

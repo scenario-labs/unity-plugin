@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using Newtonsoft.Json.Linq;
 using Scenario.Editor;
 using Scenario.Editor.Agent;
 using Scenario.Editor.Core;
@@ -45,6 +46,16 @@ namespace ScenarioDev
 
         static ScenarioService S => ScenarioService.Instance;
 
+        /// <summary>The skin the next editor launch uses, for the light and dark captures (run alone, then relaunch).</summary>
+        public static void LightSkin() => SetSkin(0);
+        public static void DarkSkin() => SetSkin(1);
+
+        static void SetSkin(int skin)
+        {
+            EditorPrefs.SetInt("UserSkin", skin);
+            EditorApplication.Exit(0);
+        }
+
         public static void SignedOut()
         {
             Steps.Clear();
@@ -59,11 +70,11 @@ namespace ScenarioDev
             Steps.Clear();
             // Long enough for the project name and the day's spend to load into the header.
             Add("create-image", () => { _window.Show("create"); _window.Create.SelectType("image", true); }, min: 12, max: 40);
-            Add("create-image-prompt", () => _window.Create.SetPrompt("A mossy stone golem guarding a forest shrine, stylized game art, soft rim light"), min: 3);
+            Add("create-image-prompt", () => _window.Create.SetPrompt("An old treasure map on torn parchment, hand-drawn trails and a red X, game item"), min: 3);
             Add("create-suggest", () => Click(Q("suggest")), min: 6, max: 40);
-            Add("create-model3d", () => _window.Create.SelectType("model3d"), min: 4);
-            Add("create-material", () => _window.Create.SelectType("material"), min: 4);
-            Add("create-skybox", () => _window.Create.SelectType("skybox"), min: 4);
+            Add("create-model3d", () => { _window.Create.SelectType("model3d"); _window.Create.SelectModel("model_meshy-7-1-txt23d"); PromptLater(StoryPrompt("hunter", "A stylized treasure hunter, full body, game character")); }, min: 8);
+            Add("create-material", () => { _window.Create.SelectType("material"); PromptLater(StoryPrompt("clean-sand", "Fine clean golden desert sand with soft wind ripples")); }, min: 6);
+            Add("create-skybox", () => { _window.Create.SelectType("skybox"); PromptLater(StoryPrompt("dunes-sky", "Endless golden sand dunes rolling to the horizon at golden hour")); }, min: 6);
             Add("create-video", () => _window.Create.SelectType("video"), min: 4);
             Add("create-audio", () => _window.Create.SelectType("audio"), min: 4);
             Add("create-all", () => _window.Create.SelectType("all"), min: 4);
@@ -74,10 +85,11 @@ namespace ScenarioDev
                 if (row == null) { Report.Add("no generated image for the step"); return; }
                 var texture = AssetDatabase.LoadAssetAtPath<Texture2D>(row.Files[0]);
                 _window.Create.StartStep(OutputTypes.Step("to-3d"), new SlotItem { AssetId = row.AssetIds[0], Kind = "image", Source = texture, Label = texture != null ? texture.name : "image" });
-            }, min: 6, max: 40);
-            Add("create-motion", () => _window.Create.SelectType("motion"), min: 4);
+                PromptLater("");
+            }, min: 8, max: 40);
+            Add("create-motion", () => { _window.Create.SelectType("motion"); _window.Create.SelectModel("model_uthana-text-to-motion-3.0"); PromptLater(StoryPrompt("dig", "Kneels and digs in the sand")); }, min: 8);
             // The 3D steps on a generated model: each prices against Scenario with the model in its slot.
-            Add("step-retexture", () => StartModelStep("retexture"), min: 6, max: 40);
+            Add("step-retexture", () => { StartModelStep("retexture"); PromptLater(StoryPrompt("retexture", "")); }, min: 8, max: 40);
             Add("step-remesh", () => StartModelStep("remesh"), min: 6, max: 40);
             Add("step-rig", () => StartModelStep("rig"), min: 6, max: 40);
             Add("step-animate-library", () => StartModelStep("animate-3d"), min: 6, max: 40);
@@ -89,15 +101,8 @@ namespace ScenarioDev
             Add("model-browser-search", () => { var f = Q<TextField>("model-search"); if (f != null) f.value = "flux"; }, min: 1.5f);
             Add("palette", () => { _window.CloseOverlay(); _window.OpenPalette(); }, min: 1.5f);
             Add("palette-search", () => { var f = Q<TextField>("palette-search"); if (f != null) f.value = "sky"; }, min: 1.5f);
-            Add("toasts", () =>
-            {
-                _window.CloseOverlay();
-                _window.Toast("Golem.png imported to Assets/Scenario/Images.", "success");
-                _window.Toast("Claude Code asks to spend 12 CU: generate a texture.", "warning", "Review", () => { }, 30);
-                _window.Toast("Price unavailable: the request timed out.", "error");
-            }, min: 1);
             // Long enough for the Scenario thumbnails to arrive.
-            Add("library-scenario", () => _window.Show("library"), min: 16, max: 30);
+            Add("library-scenario", () => { _window.CloseOverlay(); _window.Show("library"); }, min: 16, max: 30);
             Add("library-project", () => Click(Q("tab-project")), min: 2);
             Add("library-audio", () =>
             {
@@ -122,16 +127,21 @@ namespace ScenarioDev
             }, min: 6, size: new Vector2(1040, 720));
             Add("hero", () =>
             {
-                // The README image: a neutral workspace name (restored at the end) and no test pattern.
-                _projectName = ScenarioUserSettings.instance.ProjectName;
-                ScenarioUserSettings.instance.ProjectName = "Treasure Hunt";
-                typeof(ScenarioWindow).GetMethod("UpdateHeader", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(_window, null);
+                // The README image: no test pattern.
                 foreach (var row in S.Ledger.Jobs.Where(r => r.Prompt == "acceptance-source").ToList()) S.Dismiss(row);
                 _window.Show("create");
                 _window.Create.SelectType("image", true);
-                _window.Create.SetPrompt("A stylized wooden treasure chest, game prop, clean background");
+                PromptLater("An old treasure map on torn parchment, hand-drawn trails and a red X, game item");
                 FormToTop();
             }, min: 8, max: 40, size: new Vector2(1040, 720));
+            Add("toasts", () =>
+            {
+                _window.CloseOverlay();
+                _window.Show("create");
+                _window.Toast("Golem.png imported to Assets/Scenario/Images.", "success");
+                _window.Toast("Claude Code asks to spend 12 CU: generate a texture.", "warning", "Review", () => { }, 30);
+                _window.Toast("Price unavailable: the request timed out.", "error");
+            }, min: 1);
             Add("inspector-generated", () =>
             {
                 var row = S.Ledger.Jobs.LastOrDefault(r => r.OutputType == "image" && r.Imported && r.Files.Count > 0);
@@ -147,15 +157,18 @@ namespace ScenarioDev
             Begin();
         }
 
-        /// <summary>A generated character for the 3D step shots: the knight from the paid acceptance run when there.</summary>
         /// <summary>Earlier steps leave the form scrolled to its settings.</summary>
         static void FormToTop() => _window.rootVisualElement.schedule.Execute(() =>
         {
             foreach (var scroll in _window.ViewForTests("create").Query<ScrollView>().ToList()) scroll.scrollOffset = Vector2.zero;
         }).ExecuteLater(300);
 
+        /// <summary>A generated character for the 3D step shots: the handbook story's retextured hunter, else the acceptance run's knight.</summary>
         static JobRow LastModel()
         {
+            var story = (string)StoryState()?["retexture"]?["job"];
+            var hunter = story != null ? S.Ledger.FindByJob(story) : null;
+            if (hunter != null && hunter.Imported) return hunter;
             var models = S.Ledger.Jobs.Where(r => r.OutputType == "model3d" && r.Imported && r.AssetIds.Count > 0 && r.Files.Any(f => f.EndsWith(".glb"))).ToList();
             return models.FirstOrDefault(r => r.Files.Any(f => f.Contains("knight"))) ?? models.FirstOrDefault();
         }
@@ -169,11 +182,28 @@ namespace ScenarioDev
             _window.Create.StartStep(OutputTypes.Step(stepId), new SlotItem { AssetId = row.AssetIds[0], Kind = "3d", Source = prefab, Label = Path.GetFileNameWithoutExtension(file) });
         }
 
+        /// <summary>Sets the prompt once the model's form has loaded (the load puts back the form's last prompt).</summary>
+        static void PromptLater(string prompt) => _window.rootVisualElement.schedule.Execute(() => _window.Create.SetPrompt(prompt)).ExecuteLater(2500);
+
+        static JObject StoryState()
+        {
+            const string path = "Library/ScenarioDevLogs/story/story.json";
+            return File.Exists(path) ? Json.ParseObject(File.ReadAllText(path)) : null;
+        }
+
+        /// <summary>The prompt the story run sent for this step (its job's), else the fallback.</summary>
+        static string StoryPrompt(string step, string fallback)
+        {
+            var job = (string)StoryState()?[step]?["job"];
+            var row = job != null ? S.Ledger.FindByJob(job) : null;
+            return row != null && row.Prompt.Length > 0 ? row.Prompt : fallback;
+        }
+
         static void Add(string name, Action setup, float min = 1.5f, float max = 20f, Vector2? size = null, bool both = true, Func<EditorWindow> capture = null)
             => Steps.Add(new Step { Name = name, Setup = setup, MinWait = min, MaxWait = max, Size = size ?? new Vector2(460, 780), BothThemes = both, Capture = capture });
 
         static EditorWindow _inspector;
-        static string _projectName;
+        static string _projectName, _teamName, _email;
 
         static EditorWindow Inspector()
         {
@@ -186,15 +216,33 @@ namespace ScenarioDev
             _out = Environment.GetEnvironmentVariable("SCENARIO_SHOTS_DIR");
             if (string.IsNullOrEmpty(_out)) _out = "Library/ScenarioShots";
             Directory.CreateDirectory(_out);
+            // SCENARIO_SHOTS_ONLY: a comma-separated list of shot names, to retake only those.
+            var only = (Environment.GetEnvironmentVariable("SCENARIO_SHOTS_ONLY") ?? "").Split(',').Select(n => n.Trim()).Where(n => n.Length > 0).ToList();
+            if (only.Count > 0) Steps.RemoveAll(step => !only.Contains(step.Name));
             // Switching skin inside a batch editor stalls it: the launcher sets the skin before launch.
             _theme = EditorGUIUtility.isProSkin ? "dark" : "light";
             Debug.Log($"SHOTS begin theme={_theme} pro={EditorGUIUtility.isProSkin} steps={Steps.Count}");
             OpenWindow();
+            ShowWorkspaceName();
             _index = 0;
             if (_theme == "light") while (_index < Steps.Count && !Steps[_index].BothThemes) _index++;
             _setupDone = false;
             _started = EditorApplication.timeSinceStartup;
             EditorApplication.update += Tick;
+        }
+
+        /// <summary>
+        /// Every shot shows the neutral workspace "My Team / Treasure Hunt" and no email (the real ones are
+        /// restored at the end; the email only in memory, it is never saved from here).
+        /// </summary>
+        static void ShowWorkspaceName()
+        {
+            var user = ScenarioUserSettings.instance;
+            if (_projectName == null) (_projectName, _teamName) = (user.ProjectName, user.TeamName);
+            if (S.Client.Auth is OAuthAuth oauth && oauth.Email.Length > 0) (_email, oauth.Email) = (oauth.Email, "");
+            if (user.ProjectName == "Treasure Hunt" && user.TeamName == "My Team") return;
+            (user.ProjectName, user.TeamName) = ("Treasure Hunt", "My Team");
+            typeof(ScenarioWindow).GetMethod("UpdateHeader", BindingFlags.Instance | BindingFlags.NonPublic)?.Invoke(_window, null);
         }
 
         static void OpenWindow()
@@ -221,6 +269,7 @@ namespace ScenarioDev
                     var size = step.Size;
                     _window.position = new Rect(40, 40, size.x, size.y);
                     Debug.Log($"SHOTS step {step.Name}");
+                    ShowWorkspaceName();
                     step.Setup();
                     _setupDone = true;
                     _started = now;
@@ -248,7 +297,12 @@ namespace ScenarioDev
         static void Finish()
         {
             EditorApplication.update -= Tick;
-            if (_projectName != null) ScenarioUserSettings.instance.ProjectName = _projectName;
+            if (_projectName != null)
+            {
+                (ScenarioUserSettings.instance.ProjectName, ScenarioUserSettings.instance.TeamName) = (_projectName, _teamName);
+                ScenarioUserSettings.instance.Save();
+            }
+            if (_email != null && S.Client.Auth is OAuthAuth oauth) oauth.Email = _email;
             foreach (var line in Report) Debug.Log("SHOTS " + line);
             Debug.Log($"SHOTS done theme={_theme}");
             File.WriteAllLines(Path.Combine(_out, $"report-{_theme}.txt"), Report);

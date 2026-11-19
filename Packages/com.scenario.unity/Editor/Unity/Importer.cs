@@ -46,7 +46,7 @@ namespace Scenario.Editor
     {
         static readonly HashSet<string> UnityImageFormats = new HashSet<string> { "png", "jpg", "jpeg", "tga", "psd", "exr", "hdr", "tif", "tiff", "bmp", "gif" };
 
-        public static async Task<Result<List<ImportedFile>>> Import(McpClient client, IList<string> assetIds, ImportContext context, CancellationToken cancel = default)
+        public static async Task<Result<List<ImportedFile>>> Import(ApiClient client, IList<string> assetIds, ImportContext context, CancellationToken cancel = default)
         {
             var settings = ScenarioProjectSettings.instance;
             var typeFolder = OutputTypes.Get(context.OutputType).Folder;
@@ -140,7 +140,7 @@ namespace Scenario.Editor
             return Result<List<ImportedFile>>.Success(imported);
         }
 
-        static async Task<Result<bool>> Fetch(McpClient client, string assetId, string format, string temp, CancellationToken cancel)
+        static async Task<Result<bool>> Fetch(ApiClient client, string assetId, string format, string temp, CancellationToken cancel)
         {
             var url = await client.DownloadUrl(assetId, format, cancel);
             if (!url.Ok) return url.Cast<bool>();
