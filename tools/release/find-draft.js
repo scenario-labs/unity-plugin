@@ -14,12 +14,20 @@
 // GITHUB_OUTPUT, and only after every check passed.
 
 const fs = require("node:fs");
-const { PREFIX, RELEASE_APP, REPO_RE, SHA_RE, TAG_RE, ReleaseError, ghJson, failure } = require("./github.js");
+const { PREFIX, RELEASE_APP, REPO_RE, SHA_RE, TAG_RE, ReleaseError, gh, failure } = require("./github.js");
 
-function findDraft(repo, currentSha, request = ghJson) {
+// gh keeps only the drafts' checked fields, one JSON array per page, so a long
+// release history stays under execFileSync's 1 MiB output limit.
+const DRAFT_FIELDS = "map(select(.draft == true) | {id, tag_name, draft, prerelease, target_commitish, author: {login: .author.login}})";
+
+function releasePages(args, run = gh) {
+  return run(args).split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
+}
+
+function findDraft(repo, currentSha, request = releasePages) {
   if (!REPO_RE.test(repo || "")) throw new ReleaseError("GH_REPO must identify an owner/repository");
   if (!SHA_RE.test(currentSha || "")) throw new ReleaseError("GITHUB_SHA must be a full commit SHA");
-  const pages = request(["api", `repos/${repo}/releases?per_page=100`, "--paginate", "--slurp"]);
+  const pages = request(["api", `repos/${repo}/releases?per_page=100`, "--paginate", "--jq", DRAFT_FIELDS]);
   if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) throw new ReleaseError("GitHub returned an invalid paginated release list");
   const drafts = [];
   for (const page of pages) {
@@ -43,7 +51,7 @@ function findDraft(repo, currentSha, request = ghJson) {
   return { found: "true", tag_name: draft.tag_name, sha: sha.toLowerCase(), release_id: String(draft.id) };
 }
 
-function main(env = process.env, request = ghJson, err = process.stderr) {
+function main(env = process.env, request = releasePages, err = process.stderr) {
   try {
     const outputs = findDraft(env.GH_REPO, env.GITHUB_SHA, request);
     if (!env.GITHUB_OUTPUT) throw new ReleaseError("GITHUB_OUTPUT is not set");
@@ -57,4 +65,4 @@ function main(env = process.env, request = ghJson, err = process.stderr) {
 
 if (require.main === module) process.exit(main());
 
-module.exports = { findDraft, main };
+module.exports = { DRAFT_FIELDS, releasePages, findDraft, main };

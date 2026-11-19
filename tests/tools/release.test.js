@@ -11,7 +11,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { findDraft, main: findDraftMain } = require("../../tools/release/find-draft.js");
+const { DRAFT_FIELDS, releasePages, findDraft, main: findDraftMain } = require("../../tools/release/find-draft.js");
 const { linkedNumbers, humans, mentionList, withContributors, update, main: contributorsMain } = require("../../tools/release/contributors.js");
 
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -43,9 +43,14 @@ const OTHER = "b".repeat(40);
 const APP = "gh-actions-token-retriever-public[bot]";
 const draft = (over = {}) => ({ id: 7, tag_name: "unity-plugin-v0.3.0", draft: true, prerelease: false, target_commitish: SHA, author: { login: APP }, ...over });
 const releasesAnswer = (pages) => (args) => {
-  assert.deepEqual(args, ["api", `repos/${REPO}/releases?per_page=100`, "--paginate", "--slurp"]);
+  assert.deepEqual(args, ["api", `repos/${REPO}/releases?per_page=100`, "--paginate", "--jq", DRAFT_FIELDS]);
   return pages;
 };
+
+test("find-draft: reads gh's filtered answer as one page per line", () => {
+  assert.deepEqual(releasePages(["api"], () => `[${JSON.stringify(draft())}]\n[]\n`), [[draft()], []]);
+  assert.throws(() => releasePages(["api"], () => "[{\"id\": 7}\n"), SyntaxError);
+});
 
 test("find-draft: no draft, or drafts of other tags, means a fresh release-please run", () => {
   const pages = [[draft({ draft: false }), draft({ tag_name: "blender-plugin-v0.8.0" }), { id: 1, tag_name: "v0.11.0", draft: true }]];

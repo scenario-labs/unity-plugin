@@ -121,6 +121,7 @@ Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.OAuth
 # (on production, the project dedicated to plug-in tests), a catalog read and window shots. The session stays saved.
 # Resume, in a new editor: the session comes back without a browser, refreshes and rotates, then Sign out.
 # Against a development instance, set SCENARIO_OAUTH_ISSUER, SCENARIO_OAUTH_CLIENT_ID and SCENARIO_API_URL.
+# Until Scenario turns device sign-in on for Unity, Device needs a development instance that has it.
 SCENARIO_NO_SPEND=1 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Device
 SCENARIO_NO_SPEND=1 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Browser
 SCENARIO_NO_SPEND=1 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Resume
