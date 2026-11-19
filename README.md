@@ -263,7 +263,7 @@ Project settings (output folder, import, placement, spending threshold) are save
 
 - [User guide](Packages/com.scenario.unity/Documentation~/USER_GUIDE.md): every view step by step, job states, troubleshooting.
 - [Agent skill](Packages/com.scenario.unity/Documentation~/agent-skill/SKILL.md): what an agent should know to use the bridge well.
-- [Changelog](Packages/com.scenario.unity/CHANGELOG.md), [roadmap](ROADMAP.md), [support](SUPPORT.md), [security](SECURITY.md).
+- [Changelog](Packages/com.scenario.unity/CHANGELOG.md), [planned work](https://github.com/scenario-labs/unity-plugin/issues), [support](SUPPORT.md), [security](SECURITY.md).
 
 ## Development
 
