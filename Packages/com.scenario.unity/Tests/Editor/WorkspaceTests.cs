@@ -45,6 +45,7 @@ namespace Scenario.Editor.Tests
             _notices.Clear();
             // Each test is a new editor session: the check at start has not run yet, and the saved
             // session has no access token, so its first call refreshes.
+            _teamsChecked = SessionState.GetBool(ScenarioService.TeamsCheckedKey, false);
             SessionState.EraseBool(ScenarioService.TeamsCheckedKey);
             _accessToken = SessionState.GetString(AccessTokenKey, "");
             _accessExpiry = SessionState.GetFloat(AccessExpiryKey, 0);
@@ -54,13 +55,14 @@ namespace Scenario.Editor.Tests
 
         const string AccessTokenKey = "Scenario.AccessToken";
         const string AccessExpiryKey = "Scenario.AccessExpiry";
+        bool _teamsChecked;
         string _accessToken;
         float _accessExpiry;
 
         [TearDown]
         public void TearDown()
         {
-            SessionState.EraseBool(ScenarioService.TeamsCheckedKey);
+            SessionState.SetBool(ScenarioService.TeamsCheckedKey, _teamsChecked);
             SessionState.SetString(AccessTokenKey, _accessToken);
             SessionState.SetFloat(AccessExpiryKey, _accessExpiry);
             if (_window != null) _window.Close();
@@ -262,6 +264,33 @@ namespace Scenario.Editor.Tests
             for (var i = 0; i < 5; i++) yield return null;
             Assert.AreEqual("p1", s.Client.ProjectId);
             Assert.IsFalse(_notices.Any(n => n.level == "error"), "a background check does not show a failure");
+        }
+
+        [Test]
+        public void ARefusalAfterARefreshThatFailed_KeepsTheSavedSignIn()
+        {
+            // The provider times out, so the access token is not renewed and the API refuses the call without it.
+            _server.Other = request => request.Url == OAuthApp.Production.TokenEndpoint ? FakeApi.Fail("timeout") : new HttpReply { Status = 404 };
+            _server.Routes["GET /teams"] = (args, i) => FakeApi.Status(401);
+            var s = Resume("t1", "p1");
+            Run.Sync(s.LoadTeams(autoPick: true, quiet: true));
+            Assert.IsTrue(s.IsSignedIn, "a refresh that failed says nothing about the session");
+            Assert.AreEqual("rt_saved", s.Credentials.Load().Secret, "the saved sign-in stays for the next try");
+            Assert.AreEqual("p1", s.Client.ProjectId);
+        }
+
+        [Test]
+        public void ARefreshTokenTheProviderRefuses_EndsTheSession()
+        {
+            _server.Other = request => request.Url == OAuthApp.Production.TokenEndpoint
+                ? new HttpReply { Status = 400, Body = "{\"error\":\"invalid_grant\"}" }
+                : new HttpReply { Status = 404 };
+            _server.Routes["GET /teams"] = (args, i) => FakeApi.Status(401);
+            var s = Resume("t1", "p1");
+            Run.Sync(s.LoadTeams(autoPick: true, quiet: true));
+            Assert.IsFalse(s.IsSignedIn);
+            Assert.AreEqual("", s.Credentials.Load().Method, "the saved sign-in is gone");
+            StringAssert.Contains("expired", s.SignInError);
         }
 
         [UnityTest]

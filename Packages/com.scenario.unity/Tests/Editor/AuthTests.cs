@@ -169,6 +169,22 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
+        public void ProviderCallsNeverFollowARedirect()
+        {
+            // Each carries a code and its verifier, a device code or a token: a redirect comes back as its reply.
+            var server = new FakeApi { Other = _ => new HttpReply { Status = 307 } };
+            var client = new OAuthClient(server, DevApp);
+            Run.Sync(client.Exchange("code", "http://127.0.0.1:1/callback", "verifier", 0));
+            Run.Sync(client.Refresh("rt_1", 0));
+            Run.Sync(client.StartDevice(0));
+            Run.Sync(client.PollDevice(new DeviceCode { Code = "dc_1", Interval = 1, ExpiresAt = double.MaxValue }, () => 0));
+            Run.Sync(client.Revoke("rt_1"));
+            Run.Sync(client.UserInfo("at_1"));
+            Assert.AreEqual(6, server.Requests.Count);
+            Assert.IsTrue(server.Requests.All(request => !request.FollowRedirects));
+        }
+
+        [Test]
         public void RevokeSendsTheTokenToTheAppsProvider()
         {
             var server = new FakeApi();
@@ -639,6 +655,49 @@ namespace Scenario.Editor.Tests
             Assert.AreEqual(SignInState.SignedOut, s.State);
             Assert.AreEqual("", s.SignInError);
             Assert.IsNull(s.PendingDevice);
+        }
+
+        [UnityTest]
+        public IEnumerator SignOutEndsASignInStillWaiting()
+        {
+            using (var polled = new ManualResetEventSlim())
+            using (var approve = new ManualResetEventSlim())
+            {
+                // The first poll is held until the test has signed out; the other device then approves.
+                var server = Provider(pendingPolls: 0);
+                var provider = server.Other;
+                server.Other = request =>
+                {
+                    if (request.Url == OAuthApp.Production.TokenEndpoint)
+                    {
+                        polled.Set();
+                        approve.Wait(TimeSpan.FromSeconds(20));
+                    }
+                    return provider(request);
+                };
+                var s = ScenarioService.UseForTests(new WorkerThreadTransport(server), TempDir.Make("device-signout"));
+                try
+                {
+                    var signIn = s.SignInOnAnotherDevice();
+                    var until = EditorApplication.timeSinceStartup + 20;
+                    while (!polled.IsSet && EditorApplication.timeSinceStartup < until) yield return null;
+                    Assert.IsTrue(polled.IsSet);
+
+                    s.SignOut();
+                    approve.Set();
+                    while (!signIn.IsCompleted && EditorApplication.timeSinceStartup < until) yield return null;
+                    Assert.IsTrue(signIn.IsCompleted, "the polling stopped");
+                    for (var i = 0; i < 5; i++) yield return null;
+                    Assert.AreEqual(SignInState.SignedOut, s.State);
+                    Assert.IsFalse(s.IsSignedIn);
+                    Assert.IsNull(s.PendingDevice);
+                    Assert.AreEqual("", s.Credentials.Load().Method, "an approval after Sign out is not saved");
+                }
+                finally
+                {
+                    approve.Set();
+                }
+            }
         }
     }
 }

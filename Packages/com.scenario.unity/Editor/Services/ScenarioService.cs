@@ -380,6 +380,8 @@ namespace Scenario.Editor
 
         public void SignOut()
         {
+            // A sign-in still waiting (a code on another device) ends too: its approval must not sign in again.
+            CancelSignIn();
             if (Client.Auth is OAuthAuth oauth && _oauth != null) _ = _oauth.Revoke(oauth.Tokens.RefreshToken);
             Credentials.Clear();
             SessionState.EraseString(AccessTokenKey);
@@ -442,7 +444,7 @@ namespace Scenario.Editor
             TeamsLoading = false;
             if (!teams.Ok)
             {
-                if (teams.Error.Kind == ErrorKind.Auth && Client.Auth is OAuthAuth) ExpireSession();
+                if (teams.Error.Kind == ErrorKind.Auth && SessionEnded) ExpireSession();
                 else if (!_teamsQuiet) Notify(teams.Error.Message, "error");
                 Emit();
                 return;
@@ -450,6 +452,13 @@ namespace Scenario.Editor
             ApplyTeams(teams.Value, _teamsAutoPick);
             Emit();
         }
+
+        /// <summary>
+        /// The OAuth session cannot go on: the provider refused its refresh token (which empties it), or
+        /// it has none. A refusal after a refresh that only failed (a timeout, the provider down) proves
+        /// nothing, so the saved sign-in stays for the next try.
+        /// </summary>
+        bool SessionEnded => Client.Auth is OAuthAuth oauth && oauth.Tokens.RefreshToken.Length == 0;
 
         void ExpireSession()
         {
@@ -741,7 +750,7 @@ namespace Scenario.Editor
                 _nextPoll[row.LocalId] = Json.Now() + interval;
                 if (!job.Ok)
                 {
-                    if (job.Error.Kind == ErrorKind.Auth && Client.Auth is OAuthAuth) ExpireSession();
+                    if (job.Error.Kind == ErrorKind.Auth && SessionEnded) ExpireSession();
                     return;
                 }
                 Ledger.ApplyJob(job.Value, Json.Now());

@@ -164,8 +164,19 @@ namespace Scenario.Editor.Core
 
         async Task<Result<OAuthTokens>> Token(Dictionary<string, string> form, double now, string previousRefresh, CancellationToken cancel)
         {
-            var reply = await _transport.SendAsync(HttpRequests.FormPost(App.TokenEndpoint, form, 30), cancel);
+            var reply = await _transport.SendAsync(Form(App.TokenEndpoint, form, 30), cancel);
             return Tokens(reply, Json.ParseObject(reply.Body), now, previousRefresh);
+        }
+
+        /// <summary>
+        /// A form post to the provider. Each carries a code and its verifier, a device code or a
+        /// token: a redirect comes back as its 3xx reply, and the form is never sent to another host.
+        /// </summary>
+        static HttpRequestSpec Form(string url, Dictionary<string, string> fields, double timeout)
+        {
+            var request = HttpRequests.FormPost(url, fields, timeout);
+            request.FollowRedirects = false;
+            return request;
         }
 
         public const string DeviceGrant = "urn:ietf:params:oauth:grant-type:device_code";
@@ -174,7 +185,7 @@ namespace Scenario.Editor.Core
         public async Task<Result<DeviceCode>> StartDevice(double now, CancellationToken cancel = default)
         {
             var form = new Dictionary<string, string> { ["client_id"] = App.ClientId, ["scope"] = Scope };
-            var reply = await _transport.SendAsync(HttpRequests.FormPost(App.DeviceAuthorizationEndpoint, form, 30), cancel);
+            var reply = await _transport.SendAsync(Form(App.DeviceAuthorizationEndpoint, form, 30), cancel);
             var data = Json.ParseObject(reply.Body);
             var device = new DeviceCode
             {
@@ -219,7 +230,7 @@ namespace Scenario.Editor.Core
                 // The code expired during the wait: polling with it again would only be refused.
                 if (clock() >= device.ExpiresAt) break;
                 var form = new Dictionary<string, string> { ["grant_type"] = DeviceGrant, ["device_code"] = device.Code, ["client_id"] = App.ClientId };
-                var reply = await _transport.SendAsync(HttpRequests.FormPost(App.TokenEndpoint, form, 30), cancel).ConfigureAwait(false);
+                var reply = await _transport.SendAsync(Form(App.TokenEndpoint, form, 30), cancel).ConfigureAwait(false);
                 if (cancel.IsCancellationRequested) return Result<OAuthTokens>.Fail(ErrorKind.Canceled, "Sign-in canceled.");
                 if (!reply.Answered || reply.Status >= 500)
                 {
@@ -277,13 +288,13 @@ namespace Scenario.Editor.Core
         {
             if (string.IsNullOrEmpty(token)) return;
             var form = new Dictionary<string, string> { ["token"] = token, ["client_id"] = App.ClientId, ["token_type_hint"] = "refresh_token" };
-            await _transport.SendAsync(HttpRequests.FormPost(App.RevocationEndpoint, form, 15), cancel);
+            await _transport.SendAsync(Form(App.RevocationEndpoint, form, 15), cancel);
         }
 
         /// <summary>Email and name for the account chip. Falls back to the access token's claims.</summary>
         public async Task<JObject> UserInfo(string accessToken, CancellationToken cancel = default)
         {
-            var request = new HttpRequestSpec { Method = "GET", Url = App.UserInfoEndpoint, TimeoutSeconds = 15 };
+            var request = new HttpRequestSpec { Method = "GET", Url = App.UserInfoEndpoint, TimeoutSeconds = 15, FollowRedirects = false };
             request.Headers["Authorization"] = "Bearer " + accessToken;
             var reply = await _transport.SendAsync(request, cancel);
             var data = reply.IsSuccess ? Json.ParseObject(reply.Body) : null;
