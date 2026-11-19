@@ -1,0 +1,88 @@
+name: CodeQL
+
+# CodeQL advanced setup, in place of the default setup, for C#. The default
+# setup scans C# with build-mode none and no Unity assemblies, so most Unity
+# calls stay unresolved and GitHub reports "Low C# analysis quality". Here the
+# C# job first puts Unity's managed assemblies and Unity's NUnit (from the
+# editor archive on Unity's download server, for the version in
+# ProjectSettings/ProjectVersion.txt) in the checkout: build-mode none takes
+# every .dll it finds there as a reference. Nothing is compiled or run, and no
+# Unity license is needed.
+# The categories match the default setup's, so alerts carry over.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "27 4 * * 1"
+
+permissions: {}
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, csharp, javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Unity version
+        id: unity
+        if: matrix.language == 'csharp'
+        run: |
+          line="$(grep '^m_EditorVersionWithRevision:' ProjectSettings/ProjectVersion.txt)"
+          version="$(sed -E 's/^[^:]+: *([^ ]+) .*/\1/' <<<"$line")"
+          revision="$(sed -E 's/.*\(([0-9a-f]+)\).*/\1/' <<<"$line")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      # The editor archive is about 4.4 GB; only its managed assemblies are kept.
+      # The cache key changes with the Unity version.
+      - name: Cache reference assemblies
+        id: cache
+        if: matrix.language == 'csharp'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: codeql-refs
+          key: codeql-refs-unity-${{ steps.unity.outputs.version }}
+
+      - name: Download reference assemblies
+        if: matrix.language == 'csharp' && steps.cache.outputs.cache-hit != 'true'
+        env:
+          UNITY_VERSION: ${{ steps.unity.outputs.version }}
+          UNITY_REVISION: ${{ steps.unity.outputs.revision }}
+        run: |
+          mkdir -p codeql-refs "$RUNNER_TEMP/unity"
+          managed='Editor/Data/Managed/UnityEngine'
+          nunit='Editor/Data/Resources/PackageManager/BuiltInPackages/com.unity.ext.nunit/net40/unity-custom/nunit.framework.dll'
+          curl -fsSL --retry 3 \
+            "https://download.unity3d.com/download_unity/${UNITY_REVISION}/LinuxEditorInstaller/Unity-${UNITY_VERSION}.tar.xz" \
+            | tar -xJ -C "$RUNNER_TEMP/unity" --wildcards "$managed/*.dll" "$nunit"
+          cp "$RUNNER_TEMP/unity/$managed"/*.dll "$RUNNER_TEMP/unity/$nunit" codeql-refs/
+          test -f codeql-refs/UnityEditor.dll
+          test -f codeql-refs/UnityEngine.CoreModule.dll
+          test -f codeql-refs/nunit.framework.dll
+          find codeql-refs -name '*.dll' | wc -l
+
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: /language:${{ matrix.language }}
