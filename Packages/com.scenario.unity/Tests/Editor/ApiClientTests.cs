@@ -240,6 +240,25 @@ namespace Scenario.Editor.Tests
         }
 
         [Test]
+        public void AJobOrUploadStaysInTheWorkspaceItStartedIn()
+        {
+            _client.SetAuth(new StubAuth());
+            _client.SetScope("team_2", "proj_2");
+            var started = new ApiClient.Scope("team_1", "proj_1");
+            _server.Routes["GET /jobs/{id}"] = (args, i) => FakeApi.Fixture("job.json");
+            Assert.IsTrue(Run.Sync(_client.GetJob("job_1", scope: started)).Ok);
+            Assert.AreEqual("team_1", (string)_server.Arguments.Last()["teamId"]);
+            Assert.AreEqual("proj_1", (string)_server.Arguments.Last()["projectId"]);
+            _server.Routes["POST /uploads/{id}/action"] = (args, i) => FakeApi.Json(new JObject { ["upload"] = new JObject { ["status"] = "validating" } });
+            _server.Routes["GET /uploads/{id}"] = (args, i) => FakeApi.Json(new JObject { ["upload"] = new JObject { ["status"] = "imported", ["entityId"] = "asset_up" } });
+            var done = Run.Sync(_client.UploadComplete("upload_1", scope: started));
+            Assert.IsTrue(done.Ok, done.Error?.Message);
+            CollectionAssert.AreEqual(new[] { "proj_1", "proj_1", "proj_1" }, _server.Arguments.Select(a => (string)a["projectId"]).ToArray(), "the complete and its poll stay in the upload's project");
+            Assert.IsTrue(Run.Sync(_client.GetJob("job_1")).Ok);
+            Assert.AreEqual("proj_2", (string)_server.Arguments.Last()["projectId"], "without a scope, the current project");
+        }
+
+        [Test]
         public void AnAuthorizerRefusalRefreshesOnceAndResends()
         {
             var auth = new StubAuth { RefreshWorks = true };

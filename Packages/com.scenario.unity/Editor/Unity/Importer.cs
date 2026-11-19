@@ -36,6 +36,8 @@ namespace Scenario.Editor
         /// <summary>Overrides the dated type folder.</summary>
         public string Folder = "";
         public double Cu;
+        /// <summary>The job's workspace; default for the current one.</summary>
+        public ApiClient.Scope Scope;
     }
 
     /// <summary>
@@ -49,6 +51,8 @@ namespace Scenario.Editor
         public static async Task<Result<List<ImportedFile>>> Import(ApiClient client, IList<string> assetIds, ImportContext context, CancellationToken cancel = default)
         {
             var settings = ScenarioProjectSettings.instance;
+            // The whole import reads from one workspace, even if another project is picked meanwhile.
+            var workspace = context.Scope.IsSet ? context.Scope : client.CurrentScope;
             var typeFolder = OutputTypes.Get(context.OutputType).Folder;
             var folder = string.IsNullOrEmpty(context.Folder)
                 ? Files.OutputFolder(settings.OutputRoot, typeFolder, DateTime.Now, settings.DatedFolders)
@@ -56,7 +60,7 @@ namespace Scenario.Editor
             var assets = new List<(string id, JObject asset)>();
             foreach (var assetId in assetIds)
             {
-                var asset = await client.GetAsset(assetId, cancel);
+                var asset = await client.GetAsset(assetId, cancel, workspace);
                 if (!asset.Ok) return asset.Cast<List<ImportedFile>>();
                 assets.Add((assetId, asset.Value));
             }
@@ -77,13 +81,13 @@ namespace Scenario.Editor
                 if (model && mime != "model/gltf-binary") format = "glb";
                 else if (kind == "image" && !UnityImageFormats.Contains(Files.ExtensionForMime(mime))) format = "png";
                 var temp = System.IO.Path.GetFullPath(System.IO.Path.Combine(Files.Downloads, assetId + ".download"));
-                var fetched = await Fetch(client, assetId, format, temp, cancel);
+                var fetched = await Fetch(client, assetId, format, temp, cancel, workspace);
                 if (!fetched.Ok) return fetched.Cast<List<ImportedFile>>();
                 var ext = Files.SniffFile(temp);
                 // Some results are labelled GLB but stored in another format (a Blender file for 3D edits).
                 if (model && format.Length == 0 && ext != "glb")
                 {
-                    fetched = await Fetch(client, assetId, "glb", temp, cancel);
+                    fetched = await Fetch(client, assetId, "glb", temp, cancel, workspace);
                     if (!fetched.Ok) return fetched.Cast<List<ImportedFile>>();
                     ext = Files.SniffFile(temp);
                 }
@@ -126,8 +130,8 @@ namespace Scenario.Editor
                     Role = file.Role,
                     Parameters = context.Parameters ?? new JObject(),
                     CreatedAt = DateTime.UtcNow.ToString("o"),
-                    TeamId = client.TeamId,
-                    ProjectId = client.ProjectId,
+                    TeamId = workspace.TeamId,
+                    ProjectId = workspace.ProjectId,
                     Cu = context.Cu,
                 });
                 GltfImportFix.Incoming.Remove(file.Path);
@@ -140,9 +144,9 @@ namespace Scenario.Editor
             return Result<List<ImportedFile>>.Success(imported);
         }
 
-        static async Task<Result<bool>> Fetch(ApiClient client, string assetId, string format, string temp, CancellationToken cancel)
+        static async Task<Result<bool>> Fetch(ApiClient client, string assetId, string format, string temp, CancellationToken cancel, ApiClient.Scope scope = default)
         {
-            var url = await client.DownloadUrl(assetId, format, cancel);
+            var url = await client.DownloadUrl(assetId, format, cancel, scope);
             if (!url.Ok) return url.Cast<bool>();
             if (!Files.IsScenarioCdn(url.Value))
                 return Result<bool>.Fail(ErrorKind.Local, "Refused to download from an unexpected host.");

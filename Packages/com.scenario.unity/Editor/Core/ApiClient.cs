@@ -91,6 +91,27 @@ namespace Scenario.Editor.Core
             ProjectId = projectId ?? "";
         }
 
+        /// <summary>
+        /// The team and project a call runs in. A job, an upload or an import keeps the
+        /// workspace it started in when another project is picked meanwhile.
+        /// </summary>
+        public readonly struct Scope
+        {
+            public readonly string TeamId;
+            public readonly string ProjectId;
+
+            public Scope(string teamId, string projectId)
+            {
+                TeamId = teamId ?? "";
+                ProjectId = projectId ?? "";
+            }
+
+            /// <summary>False for default: the call runs in the current team and project.</summary>
+            public bool IsSet => !string.IsNullOrEmpty(TeamId) && !string.IsNullOrEmpty(ProjectId);
+        }
+
+        public Scope CurrentScope => new Scope(TeamId, ProjectId);
+
         static string PackageVersion()
         {
             try { return UnityEditor.PackageManager.PackageInfo.FindForAssembly(typeof(ApiClient).Assembly)?.version ?? "unknown"; }
@@ -208,9 +229,9 @@ namespace Scenario.Editor.Core
         }
 
         /// <summary>One job, flattened (see <see cref="Flatten"/>).</summary>
-        public async Task<Result<JObject>> GetJob(string jobId, CancellationToken cancel = default)
+        public async Task<Result<JObject>> GetJob(string jobId, CancellationToken cancel = default, Scope scope = default)
         {
-            var job = Unwrap<JObject>(await Send(Kind.Read, "GET", "/jobs/" + Esc(jobId), null, null, DefaultTimeout, cancel), "job");
+            var job = Unwrap<JObject>(await Send(Kind.Read, "GET", "/jobs/" + Esc(jobId), null, null, DefaultTimeout, cancel, scope: scope), "job");
             return job.Ok ? Result<JObject>.Success(Flatten(job.Value)) : job;
         }
 
@@ -222,19 +243,19 @@ namespace Scenario.Editor.Core
             return jobs.Ok ? Result<JArray>.Success(new JArray(jobs.Value.OfType<JObject>().Select(Flatten))) : jobs;
         }
 
-        public Task<Result<JObject>> CancelJob(string jobId, CancellationToken cancel = default)
-            => Send(Kind.Cancel, "POST", "/jobs/" + Esc(jobId) + "/action", null, new JObject { ["action"] = "cancel" }, DefaultTimeout, cancel);
+        public Task<Result<JObject>> CancelJob(string jobId, CancellationToken cancel = default, Scope scope = default)
+            => Send(Kind.Cancel, "POST", "/jobs/" + Esc(jobId) + "/action", null, new JObject { ["action"] = "cancel" }, DefaultTimeout, cancel, scope: scope);
 
-        public async Task<Result<JObject>> GetAsset(string assetId, CancellationToken cancel = default)
-            => Unwrap<JObject>(await Send(Kind.Read, "GET", "/assets/" + Esc(assetId), null, null, DefaultTimeout, cancel), "asset");
+        public async Task<Result<JObject>> GetAsset(string assetId, CancellationToken cancel = default, Scope scope = default)
+            => Unwrap<JObject>(await Send(Kind.Read, "GET", "/assets/" + Esc(assetId), null, null, DefaultTimeout, cancel, scope: scope), "asset");
 
         /// <summary>A signed CDN URL. format converts 3D (glb, fbx, obj) and images; "" keeps the original.</summary>
-        public async Task<Result<string>> DownloadUrl(string assetId, string format = "", CancellationToken cancel = default)
+        public async Task<Result<string>> DownloadUrl(string assetId, string format = "", CancellationToken cancel = default, Scope scope = default)
         {
             var body = new JObject();
             // The API compares formats case-sensitively.
             if (!string.IsNullOrWhiteSpace(format)) body["targetFormat"] = format.Trim().ToLowerInvariant();
-            var result = await Send(Kind.Read, "POST", "/assets/" + Esc(assetId) + "/download", null, body, 120, cancel);
+            var result = await Send(Kind.Read, "POST", "/assets/" + Esc(assetId) + "/download", null, body, 120, cancel, scope: scope);
             if (!result.Ok) return result.Cast<string>();
             var url = Json.Str(result.Value, "url");
             return url.Length > 0 ? Result<string>.Success(url) : Result<string>.Fail(ErrorKind.Protocol, "Scenario's reply had no download URL.");
@@ -345,7 +366,7 @@ namespace Scenario.Editor.Core
         /// Starts a multipart upload (no CU): { upload_id, part_size, parts: [{ part_number,
         /// upload_url }] }. Each part is PUT as raw bytes, then <see cref="UploadComplete"/>.
         /// </summary>
-        public async Task<Result<JObject>> UploadStart(string fileName, string contentType, string kind, long fileSize, CancellationToken cancel = default)
+        public async Task<Result<JObject>> UploadStart(string fileName, string contentType, string kind, long fileSize, CancellationToken cancel = default, Scope scope = default)
         {
             var parts = Math.Max(1, (int)Math.Ceiling(fileSize / (double)UploadPartSize));
             var body = new JObject
@@ -356,7 +377,7 @@ namespace Scenario.Editor.Core
                 ["fileSize"] = fileSize,
                 ["parts"] = parts,
             };
-            var result = Unwrap<JObject>(await Send(Kind.Paid, "POST", "/uploads", null, body, DefaultTimeout, cancel), "upload");
+            var result = Unwrap<JObject>(await Send(Kind.Paid, "POST", "/uploads", null, body, DefaultTimeout, cancel, scope: scope), "upload");
             if (!result.Ok) return result;
             var upload = result.Value;
             var id = Json.Str(upload, "id");
@@ -368,16 +389,16 @@ namespace Scenario.Editor.Core
         }
 
         /// <summary>Completes an upload and waits until Scenario imported it: { asset_id }.</summary>
-        public async Task<Result<JObject>> UploadComplete(string uploadId, CancellationToken cancel = default)
+        public async Task<Result<JObject>> UploadComplete(string uploadId, CancellationToken cancel = default, Scope scope = default)
         {
             var path = "/uploads/" + Esc(uploadId);
-            var done = await Send(Kind.Paid, "POST", path + "/action", null, new JObject { ["action"] = "complete" }, 180, cancel);
+            var done = await Send(Kind.Paid, "POST", path + "/action", null, new JObject { ["action"] = "complete" }, 180, cancel, scope: scope);
             // A complete that raced an earlier one, or landed before the upload was readable, is fine: the poll decides.
             if (!done.Ok && !(done.Error.Status == 400 && (done.Error.Detail.Contains("Unable to complete upload") || done.Error.Detail.Contains("Unable to load"))))
                 return done;
             for (double waited = 0; waited <= UploadWaitSeconds; waited += UploadPollSeconds)
             {
-                var poll = Unwrap<JObject>(await Send(Kind.Read, "GET", path, null, null, DefaultTimeout, cancel), "upload");
+                var poll = Unwrap<JObject>(await Send(Kind.Read, "GET", path, null, null, DefaultTimeout, cancel, scope: scope), "upload");
                 if (!poll.Ok) return poll;
                 var assetId = Json.Str(poll.Value, "entityId");
                 if (assetId.Length > 0) return Result<JObject>.Success(new JObject { ["asset_id"] = assetId });
@@ -403,20 +424,21 @@ namespace Scenario.Editor.Core
 
         /// <summary>
         /// One API call. scoped: an OAuth call carries the team and project as query
-        /// parameters (an API key is scoped by the key).
+        /// parameters (an API key is scoped by the key): scope's when set, else the current ones.
         /// </summary>
         public async Task<Result<JObject>> Send(Kind kind, string method, string path, IDictionary<string, string> query, JObject body,
-            double timeout = DefaultTimeout, CancellationToken cancel = default, bool scoped = true)
+            double timeout = DefaultTimeout, CancellationToken cancel = default, bool scoped = true, Scope scope = default)
         {
             if (!HasCredentials) return Result<JObject>.Fail(ErrorKind.Auth, "Sign in to Scenario first.", e => e.NotSent = true);
             if (kind == Kind.Paid && SpendingDisabled) return SpendingOff();
             var parameters = query != null ? new Dictionary<string, string>(query) : new Dictionary<string, string>();
             if (scoped && Auth.NeedsScope)
             {
-                if (string.IsNullOrEmpty(TeamId) || string.IsNullOrEmpty(ProjectId))
+                var workspace = scope.IsSet ? scope : CurrentScope;
+                if (!workspace.IsSet)
                     return Result<JObject>.Fail(ErrorKind.Local, "Pick a Scenario team and project first.", e => e.NotSent = true);
-                parameters["teamId"] = TeamId;
-                parameters["projectId"] = ProjectId;
+                parameters["teamId"] = workspace.TeamId;
+                parameters["projectId"] = workspace.ProjectId;
             }
             var url = BaseUrl + path + QueryString(parameters);
             // The credential goes over HTTPS only, whoever set BaseUrl.

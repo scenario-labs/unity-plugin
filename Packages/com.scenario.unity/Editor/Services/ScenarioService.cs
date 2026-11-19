@@ -679,7 +679,7 @@ namespace Scenario.Editor
         public async Task Cancel(JobRow row)
         {
             if (row == null || row.JobId.Length == 0 || !row.IsActive) return;
-            var result = await Client.CancelJob(row.JobId);
+            var result = await Client.CancelJob(row.JobId, scope: ScopeOf(row));
             if (result.Ok) Ledger.MarkCancelRequested(row.LocalId, Json.Now());
             else Notify(result.Error.Message, "error");
             SchedulePoll(row.LocalId, 1);
@@ -735,7 +735,7 @@ namespace Scenario.Editor
             _inFlight.Add(row.LocalId);
             try
             {
-                var job = await Client.GetJob(row.JobId);
+                var job = await Client.GetJob(row.JobId, scope: ScopeOf(row));
                 var interval = _pollInterval.TryGetValue(row.LocalId, out var i) ? i : 2;
                 _pollInterval[row.LocalId] = Math.Min(10, interval * 1.4);
                 _nextPoll[row.LocalId] = Json.Now() + interval;
@@ -753,6 +753,9 @@ namespace Scenario.Editor
                 _inFlight.Remove(row.LocalId);
             }
         }
+
+        /// <summary>The workspace a job was sent from: its reads and import stay there when another project is picked.</summary>
+        static ApiClient.Scope ScopeOf(JobRow row) => new ApiClient.Scope(row.TeamId, row.ProjectId);
 
         void Finish(JobRow row)
         {
@@ -792,6 +795,7 @@ namespace Scenario.Editor
                     Parameters = row.Parameters,
                     Folder = row.Folder,
                     Cu = row.ChargedCu ?? row.QuotedCu,
+                    Scope = ScopeOf(row),
                 };
                 var imported = await Importer.Import(Client, row.AssetIds, context);
                 if (!imported.Ok)
