@@ -534,13 +534,14 @@ namespace ScenarioDev
                 go.transform.localScale *= width / Mathf.Max(size.x, size.z, 1e-4f);
             }
             var bounds = World.BoundsOf(go);
-            go.transform.position += new Vector3(at.x - bounds.center.x, GroundAt(dunes, bounds.center) - bounds.min.y - sink, at.z - bounds.center.z);
+            go.transform.position += new Vector3(at.x - bounds.center.x, GroundAt(dunes, at) - bounds.min.y - sink, at.z - bounds.center.z);
         }
 
         /// <summary>A broad dune crest in the generated sand, falling away so the sky's own dunes and sun meet the horizon.</summary>
         static Terrain Dunes(JObject state)
         {
-            var files = (state["clean-sand"] ?? state["sand"])?["files"]?.Select(f => (string)f).ToList() ?? new List<string>();
+            // The clean sand only once imported (a sent step has no files yet), else the first sand.
+            var files = (state["clean-sand"]?["files"] ?? state["sand"]?["files"])?.Select(f => (string)f).ToList() ?? new List<string>();
             Texture2D Map(string kind) => AssetDatabase.LoadAssetAtPath<Texture2D>(files.FirstOrDefault(f => f.EndsWith($"-{kind}.png")) ?? "");
             const int resolution = 1025;
             const float size = 400, height = 80, top = 60;
