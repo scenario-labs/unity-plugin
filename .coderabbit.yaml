@@ -27,14 +27,3 @@ reviews:
         token refresh; no synchronous network or file work on the editor main thread; EditorPrefs or
         file storage of secrets must survive domain reloads without leaking into version control.
         Unity .meta files are excluded from review by the baseline.
-
-knowledge_base:
-  linked_repositories:
-  - repository: scenario-labs/scenario-auth
-    instructions: >-
-      Shared sign-in service for integrations (auth.scenario.com, on Clerk). Check its OAuth
-      endpoints, scopes and token rules before flagging a sign-in or token flow here.
-  - repository: scenario-labs/phoenix
-    instructions: >-
-      The Scenario API this plugin calls directly. Check endpoints, payloads and errors there
-      before flagging a request here.
