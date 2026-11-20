@@ -24,8 +24,10 @@ namespace Scenario.Editor
         internal static void ResetCachePath() => CachePath = DefaultCachePath;
         const string UploadHostSuffix = ".amazonaws.com";
 
-        public static async Task<Result<string>> UploadFile(McpClient client, string path, CancellationToken cancel = default)
+        public static async Task<Result<string>> UploadFile(ApiClient client, string path, CancellationToken cancel = default, ApiClient.Scope scope = default)
         {
+            // Every step of the upload goes to the workspace it started in.
+            var workspace = scope.IsSet ? scope : client.CurrentScope;
             var type = Files.UploadTypeFor(path);
             if (type == null) return Result<string>.Fail(ErrorKind.Local, $"{Path.GetFileName(path)} cannot be used as a reference (use PNG, JPG, WebP, GLB, FBX, OBJ, WAV, MP3, OGG, MP4, MOV or WebM).");
             byte[] bytes;
@@ -34,12 +36,12 @@ namespace Scenario.Editor
             {
                 return Result<string>.Fail(ErrorKind.Local, "Could not read " + path);
             }
-            var key = $"{client.TeamId}/{client.ProjectId}/{Hash(bytes)}";
+            var key = $"{workspace.TeamId}/{workspace.ProjectId}/{Hash(bytes)}";
             var cache = ReadCache();
             var cached = Json.Str(cache, key);
             if (cached.StartsWith("asset_", StringComparison.Ordinal)) return Result<string>.Success(cached);
 
-            var start = await client.UploadStart(Path.GetFileName(path), type.Mime, type.Kind, bytes.Length, cancel);
+            var start = await client.UploadStart(Path.GetFileName(path), type.Mime, type.Kind, bytes.Length, cancel, workspace);
             if (!start.Ok) return start.Cast<string>();
             var partSize = (long)Json.Num(start.Value, "part_size", bytes.Length);
             if (partSize <= 0) partSize = bytes.Length;
@@ -62,7 +64,7 @@ namespace Scenario.Editor
             var uploadId = Json.Str(start.Value, "upload_id");
             if (uploadId.Length > 0)
             {
-                var done = await client.UploadComplete(uploadId, cancel);
+                var done = await client.UploadComplete(uploadId, cancel, workspace);
                 if (!done.Ok) return done.Cast<string>();
                 assetId = Json.Str(done.Value, "asset_id", assetId);
             }
@@ -76,13 +78,14 @@ namespace Scenario.Editor
         /// A Scenario 3D asset in another format, as a new asset (free): for inputs that
         /// refuse GLB, such as Tencent Texture Edit (FBX only). Converted once per workspace.
         /// </summary>
-        public static async Task<Result<string>> Convert(McpClient client, string assetId, string format, CancellationToken cancel = default)
+        public static async Task<Result<string>> Convert(ApiClient client, string assetId, string format, CancellationToken cancel = default)
         {
-            var key = $"{client.TeamId}/{client.ProjectId}/convert/{assetId}.{format}";
+            var workspace = client.CurrentScope;
+            var key = $"{workspace.TeamId}/{workspace.ProjectId}/convert/{assetId}.{format}";
             var cache = ReadCache();
             var cached = Json.Str(cache, key);
             if (cached.StartsWith("asset_", StringComparison.Ordinal)) return Result<string>.Success(cached);
-            var url = await client.DownloadUrl(assetId, format, cancel);
+            var url = await client.DownloadUrl(assetId, format, cancel, workspace);
             if (!url.Ok) return url.Cast<string>();
             if (!Files.IsScenarioCdn(url.Value)) return Result<string>.Fail(ErrorKind.Local, "Refused to download from an unexpected host.");
             var path = Path.GetFullPath(Path.Combine(Files.Downloads, $"{assetId}.{format}"));
@@ -90,7 +93,7 @@ namespace Scenario.Editor
             var reply = await client.Transport.DownloadAsync(url.Value, path, 600, null, cancel);
             if (!reply.IsSuccess)
                 return Result<string>.Fail(ErrorKind.Transport, $"Converting {assetId} to {format.ToUpperInvariant()} failed ({(reply.Answered ? "HTTP " + reply.Status : reply.Error)}).");
-            var uploaded = await UploadFile(client, path, cancel);
+            var uploaded = await UploadFile(client, path, cancel, workspace);
             if (!uploaded.Ok) return uploaded;
             cache = ReadCache();
             cache[key] = uploaded.Value;
@@ -99,7 +102,7 @@ namespace Scenario.Editor
         }
 
         /// <summary>A project asset: textures in any format, models, audio, video.</summary>
-        public static Task<Result<string>> UploadAsset(McpClient client, UnityEngine.Object asset, CancellationToken cancel = default)
+        public static Task<Result<string>> UploadAsset(ApiClient client, UnityEngine.Object asset, CancellationToken cancel = default)
         {
             var path = AssetDatabase.GetAssetPath(asset);
             if (asset is GameObject go && (string.IsNullOrEmpty(path) || Files.UploadTypeFor(path) == null))
@@ -115,7 +118,7 @@ namespace Scenario.Editor
         }
 
         /// <summary>A scene object or prefab, exported to GLB with glTFast.</summary>
-        public static async Task<Result<string>> UploadObject(McpClient client, GameObject root, CancellationToken cancel = default)
+        public static async Task<Result<string>> UploadObject(ApiClient client, GameObject root, CancellationToken cancel = default)
         {
             var path = await ExportGlb(root);
             if (path == null) return Result<string>.Fail(ErrorKind.Local, $"Could not export {root.name} to GLB.");

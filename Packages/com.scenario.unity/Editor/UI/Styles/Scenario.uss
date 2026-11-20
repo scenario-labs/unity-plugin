@@ -1087,6 +1087,15 @@
     white-space: normal;
 }
 
+.sc-device-code {
+    font-size: 24px;
+    -unity-font-style: bold;
+    letter-spacing: 4px;
+    -unity-text-align: middle-center;
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
 .sc-signin-foot {
     margin-top: 18px;
     font-size: 10px;

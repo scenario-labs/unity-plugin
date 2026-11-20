@@ -7,10 +7,11 @@ Root `AGENTS.md` is the repository rulebook; `.claude/CLAUDE.md` links here.
 
 A Unity 6 editor package, C# only, in `Packages/com.scenario.unity`. It gives a
 person (the Scenario window), an AI agent (a local MCP server in the editor) and
-editor scripts (`Scenario.ScenarioApi`) every Scenario capability through the
-Scenario MCP server (`https://mcp.scenario.com/mcp?toolsets=full`: JSON-RPC 2.0
-over HTTP, SSE replies, OAuth bearer or Basic auth with an API key and secret),
-and imports the results as wired Unity assets. The repository root is a Unity
+editor scripts (`Scenario.ScenarioApi`) every Scenario capability through
+Scenario's REST API (`https://api.cloud.scenario.com/v1`: OAuth bearer, with the
+team and project as query parameters, or Basic auth with an API key and secret),
+and imports the results as wired Unity assets. The plugin does not depend on the
+hosted Scenario MCP. The repository root is a Unity
 6.3 URP project that hosts the package and its tests. `Assets/ScenarioDev/` holds
 dev-only tools (screenshots, the live contract check, the paid acceptance run)
 that never ship.
@@ -20,11 +21,13 @@ that never ship.
 In `Packages/com.scenario.unity/Editor/` (assembly `Scenario.Editor`):
 
 - `Core/` (no UI, unit-tested):
-  - `McpClient.cs`: Scenario MCP calls, sessions, error kinds, retry policy
-    (reads and price checks only), estimate and submit.
-  - `Sse.cs`, `Json.cs`, `ScenarioResult.cs`: replies, JSON helpers, results and errors.
-  - `Auth.cs`, `OAuth.cs`, `CredentialStore.cs`: API key, OAuth (PKCE, dynamic
-    client registration, loopback redirect), environment, OS keychain.
+  - `ApiClient.cs`: Scenario REST calls, error kinds, retry policy (reads and
+    price checks only), the OAuth refresh after an authorizer refusal, estimate
+    and submit, uploads.
+  - `Json.cs`, `ScenarioResult.cs`: JSON helpers, results and errors.
+  - `Auth.cs`, `OAuth.cs`, `CredentialStore.cs`: API key, OAuth (PKCE as Unity's
+    registered application on Scenario's identity provider, loopback redirect on
+    any free port), environment, OS keychain.
   - `Quote.cs`: canonical JSON, fingerprints, single-use quotes.
   - `JobLedger.cs`: durable job list (`Library/Scenario/jobs.json`), states,
     reconciles Unknown rows with `jobs_list`.
@@ -67,20 +70,22 @@ Animator parameters Speed, Grounded, Jump), `ScenarioFollowCamera`,
 frame rate), `ScenarioInput` (Input System or legacy input).
 
 Tests: `Packages/com.scenario.unity/Tests/Editor/` (assembly
-`Scenario.Editor.Tests`), against the scripted server `FakeMcp` in
+`Scenario.Editor.Tests`), against the scripted API `FakeApi` in
 `TestSupport.cs` and recorded replies in `Fixtures/`.
 
 ## Spending rules
 
 Every change keeps them.
 
-1. A price check is `model_run` or `workflow_run` with `dry_run: true`; if it
-   returns a job id, automatic price checks stop (`EstimateAlarm`).
+1. A price check is `POST /generate/custom/{model}` or `PUT /workflows/{id}/run`
+   with `dryRun=true` (HTTP 269 and a price); if it returns a job id, automatic
+   price checks stop (`EstimateAlarm`).
 2. Generate needs an unused quote whose fingerprint matches the request now; it
    consumes it.
-3. A paid call (`model_run` without dry run, `workflow_run`, `prompt_spark`,
-   uploads) is sent once. A transport failure on it marks the job Unknown, which
-   blocks the same fingerprint until reconciled.
+3. A paid call (a generate or workflow run without dry run, Prompt Spark) is
+   sent once. A transport failure on it marks the job Unknown, which blocks the
+   same fingerprint until reconciled. Uploads cost no CU: they are sent once and
+   refused when spending is off, with no ledger row.
 4. The intent row is written to the ledger before the paid request.
 5. `SCENARIO_NO_SPEND=1` and the Settings switch refuse paid calls before any
    request.
@@ -88,7 +93,7 @@ Every change keeps them.
 
 ## Commands
 
-Unity 6000.3.21f1 (the version in `ProjectSettings/ProjectVersion.txt`).
+Use the Unity version in `ProjectSettings/ProjectVersion.txt`.
 
 ```sh
 # EditMode tests; keep graphics on so the window tests run (no window is shown in batch mode)
@@ -111,6 +116,16 @@ SCENARIO_ACCEPT=1 SCENARIO_UNITY_SERVICE=1 Unity -batchmode -projectPath . -exec
 # a person opens it and signs in within 10 minutes. Nothing is saved.
 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.OAuth
 
+# Sign-in through the window, on another device (the page and code land in Library/ScenarioDevLogs/e2e/device.txt)
+# or in the browser (authorize-url.txt); a person approves; then the project picker, SCENARIO_E2E_PROJECT chosen
+# (on production, the project dedicated to plug-in tests), a catalog read and window shots. The session stays saved.
+# Resume, in a new editor: the session comes back without a browser, refreshes and rotates, then Sign out.
+# Against a development instance, set SCENARIO_OAUTH_ISSUER, SCENARIO_OAUTH_CLIENT_ID and SCENARIO_API_URL.
+# Until Scenario turns device sign-in on for Unity, Device needs a development instance that has it.
+SCENARIO_NO_SPEND=1 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Device
+SCENARIO_NO_SPEND=1 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Browser
+SCENARIO_NO_SPEND=1 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Resume
+
 # Agent check: the bridge on in a batch editor, Claude Code drives it with free tools (temporary MCP config)
 Unity -batchmode -projectPath . -executeMethod ScenarioDev.E2E.Agent &
 python3 tools/e2e_agent.py Library/ScenarioDevLogs/e2e Library/ScenarioDevLogs/e2e/agent
@@ -125,6 +140,12 @@ python3 tools/build_media.py
 
 # Icons from SVG
 uv run -q --with resvg-py tools/build_icons.py
+
+# Release tarball of the package committed at HEAD (dist/com.scenario.unity-X.Y.Z.tgz), its check,
+# and the tests of every script under tools/ (Node from .nvmrc, no npm install)
+node tools/release/build-package.js
+node tools/release/check-package.js dist/com.scenario.unity-X.Y.Z.tgz X.Y.Z
+node --test "tests/tools/*.test.js"
 ```
 
 `SCENARIO_UNITY_SERVICE=1` lets the service poll and import in batch mode;
@@ -165,13 +186,28 @@ Unity license secrets are set (`UNITY_LICENSE`, `UNITY_EMAIL`,
 ## Releases
 
 release-please keeps a release PR open on `main` (`release-please-config.json`).
-Merging it drafts the GitHub release, and the workflow's publish job then
-publishes the draft, which creates the tag `unity-plugin-vX.Y.Z`. Both run with
+Merging it drafts the GitHub release; the workflow's assets job attaches the
+UPM tarball `com.scenario.unity-X.Y.Z.tgz` (built by
+`tools/release/build-package.js` from the committed package, checked by
+`tools/release/check-package.js`, with `SHA256SUMS` and a build attestation),
+then its publish job publishes the draft, which creates the tag
+`unity-plugin-vX.Y.Z`. Both run with
 the release GitHub App's token: only that App may create release tags (the
 `versioning` ruleset), and a release PR opened with `GITHUB_TOKEN` would never
-run CI. A run that fails after drafting is fixed by rerunning that same run,
-never by publishing the draft by hand. Never edit
-versions or `CHANGELOG.md` by hand: release-please bumps
-`Packages/com.scenario.unity/package.json`, `McpClient.Version` and the README
-(`x-release-please` markers), and writes the changelog from the squashed PR
-titles. Users pin a release with `#unity-plugin-vX.Y.Z` on the git URL.
+run CI. A run that fails after drafting is fixed by rerunning that same run
+(`tools/release/find-draft.js` hands it back its draft), never by publishing
+the draft by hand. Each published release posts its notes to
+www.scenario.com/changelog (`publish-changelog.yml`). [RELEASING.md](RELEASING.md)
+has the steps, the settings they need and the recovery. Never edit
+versions or `CHANGELOG.md` by hand: the version lives in
+`Packages/com.scenario.unity/package.json` only (with release-please's
+`.release-please-manifest.json`), and everything else reads it there:
+`ApiClient.Version` through the Package Manager, the README badge, the
+handbook and the release tooling. release-please bumps both files and writes
+the changelog from the squashed PR titles. Users pin a release with
+`#unity-plugin-vX.Y.Z` on the git URL.
+
+The `unity-plugin-v0.1.0` and `v0.2.0` tags sit on the history of the fork
+that #200 squashed, outside `main`, so `last-release-sha` in
+`release-please-config.json` points at that squash; drop it once a later
+release tag is on `main`.

@@ -1,0 +1,158 @@
+{
+  "model": {
+    "id": "model_patina-material",
+    "name": "PATINA Material",
+    "capabilities": [
+      "txt2img",
+      "img2img"
+    ],
+    "inputs": [
+      {
+        "name": "prompt",
+        "type": "string",
+        "description": "Text description of the material to generate, for example weathered copper patina or mossy stone wall.",
+        "required": {
+          "always": true
+        },
+        "maxLength": 2048,
+        "promptSpark": true,
+        "prompt": true
+      },
+      {
+        "name": "image",
+        "type": "file",
+        "description": "An optional starting texture. Without a mask, PATINA creates variations. With a mask, it inpaints the marked region.",
+        "kind": "image"
+      },
+      {
+        "name": "imageStrength",
+        "type": "number",
+        "description": "How much to transform the input image. Higher values change it more. Only used when an image is provided.",
+        "default": 0.6,
+        "min": 0.01,
+        "max": 1,
+        "step": 0.01
+      },
+      {
+        "name": "mask",
+        "type": "file",
+        "description": "A black-and-white mask for inpainting. White regions are regenerated, black regions are preserved. Requires an input image.",
+        "kind": "image"
+      },
+      {
+        "name": "width",
+        "type": "number",
+        "description": "Output width in pixels. Upscaling applies to PBR maps only, not the base texture.",
+        "default": 1024,
+        "min": 512,
+        "max": 2048,
+        "step": 16,
+        "costImpact": true
+      },
+      {
+        "name": "height",
+        "type": "number",
+        "description": "Output height in pixels. Upscaling applies to PBR maps only, not the base texture.",
+        "default": 1024,
+        "min": 512,
+        "max": 2048,
+        "step": 16,
+        "costImpact": true
+      },
+      {
+        "name": "maps",
+        "type": "string_array",
+        "description": "Which PBR maps to predict. Deselect all to skip PBR estimation and only generate the texture.",
+        "default": [
+          "basecolor",
+          "normal",
+          "roughness",
+          "metalness",
+          "height"
+        ],
+        "allowedValues": [
+          "basecolor",
+          "normal",
+          "roughness",
+          "metalness",
+          "height"
+        ],
+        "maxLength": 5,
+        "costImpact": true
+      },
+      {
+        "name": "upscaleFactor",
+        "type": "number",
+        "description": "Seamless upscale for predicted PBR maps. 0 keeps map resolution, 2 doubles it, 4 quadruples it (up to 8K from a 2048 texture). The base texture is not upscaled.",
+        "default": 0,
+        "allowedValues": [
+          0,
+          2,
+          4
+        ],
+        "costImpact": true
+      },
+      {
+        "name": "tilingMode",
+        "type": "string",
+        "description": "Which directions the material repeats seamlessly. Both repeats in every direction; Horizontal repeats left-to-right; Vertical repeats top-to-bottom.",
+        "default": "both",
+        "allowedValues": [
+          "both",
+          "horizontal",
+          "vertical"
+        ]
+      },
+      {
+        "name": "numOutputs",
+        "type": "number",
+        "description": "Number of texture images to generate from the same prompt.",
+        "default": 1,
+        "min": 1,
+        "max": 4,
+        "step": 1,
+        "costImpact": true
+      },
+      {
+        "name": "numInferenceSteps",
+        "type": "number",
+        "description": "Number of denoising steps for texture generation. Higher values take longer.",
+        "default": 8,
+        "min": 1,
+        "max": 8,
+        "step": 1
+      },
+      {
+        "name": "enablePromptExpansion",
+        "type": "boolean",
+        "description": "Expand the prompt with an LLM for richer material detail.",
+        "default": true
+      },
+      {
+        "name": "tileSize",
+        "type": "number",
+        "description": "Seamless-tiling window in latent space. 64 ≈ 512px, 128 ≈ 1024px, 256 ≈ 2048px. Match this to the output resolution for cleaner repeats.",
+        "default": 128,
+        "min": 32,
+        "max": 256,
+        "step": 1
+      },
+      {
+        "name": "tileStride",
+        "type": "number",
+        "description": "How far the tiling window steps between passes. Smaller than tile size adds overlap and usually smoother seams; larger is faster but can show a grid.",
+        "default": 64,
+        "min": 16,
+        "max": 128,
+        "step": 1
+      },
+      {
+        "name": "seed",
+        "type": "number",
+        "description": "A number that makes results repeatable. Reusing the same seed and settings produces the same material; leave it empty for a different result each time.",
+        "min": 0,
+        "max": 2147483647
+      }
+    ]
+  }
+}

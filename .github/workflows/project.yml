@@ -1,0 +1,92 @@
+name: project
+
+# Adds each pull request, once it is ready for review, to the shared Plugins
+# project (organization project 31) with the Status "👀 In review", as
+# photoshop-plugin and godot-plugin do. The project's own auto-add workflow
+# already serves another repository, so this repository adds its pull
+# requests from here.
+#
+# GITHUB_TOKEN cannot write organization projects: the release GitHub App's
+# token does, with "Organization projects: Read and write" and pull request read.
+# pull_request_target runs from the base branch, so pull requests from forks are
+# added too; this workflow never checks out or runs their code.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+
+# GITHUB_TOKEN gets no scope: the GitHub App token below does all the work.
+permissions: {}
+
+concurrency:
+  group: project-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+env:
+  PROJECT_OWNER: scenario-labs
+  PROJECT_NUMBER: "31"
+  STATUS: In review
+
+jobs:
+  add:
+    name: add to project
+    # Drafts wait for ready_for_review. Dependabot runs get no secrets, so its
+    # pull requests stay off the board.
+    if: >-
+      github.repository == 'scenario-labs/unity-plugin' &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Retrieve GitHub App token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        id: app-token
+        with:
+          client-id: ${{ secrets.GH_ACTIONS_TOKEN_RETRIEVER_PUBLIC_REPO_CLIENT_ID }}
+          private-key: ${{ secrets.GH_ACTIONS_TOKEN_RETRIEVER_PUBLIC_REPO_PRIVATE_KEY }}
+          owner: ${{ env.PROJECT_OWNER }}
+          repositories: ${{ github.event.repository.name }}
+          # The App token's own scopes, not GITHUB_TOKEN permissions. item-add
+          # reads the pull request from its URL, so the token needs that too.
+          permission-organization-projects: "write"
+          permission-pull-requests: "read"
+
+      - name: Add the pull request and set its status
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -euo pipefail
+          project_id="$(gh project view "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --format json --jq .id)"
+          # The option names carry an emoji ("👀 In review"): match on the words.
+          read -r field_id option_id < <(gh project field-list "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --format json \
+            | jq -r --arg status "$STATUS" '.fields[] | select(.name == "Status")
+                | "\(.id) \([.options[] | select(.name | endswith($status)) | .id][0] // "")"')
+          if [ -z "${option_id:-}" ]; then
+            echo "::error::Project $PROJECT_NUMBER has no Status option ending with \"$STATUS\""
+            exit 1
+          fi
+          # item-add returns the existing item when the pull request is already on the board.
+          item_id="$(gh project item-add "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --url "$PR_URL" --format json --jq .id)"
+          set_status() {
+            gh project item-edit --id "$item_id" --project-id "$project_id" \
+              --field-id "$field_id" --single-select-option-id "$option_id" > /dev/null
+          }
+          current_status() {
+            # shellcheck disable=SC2016 # $id is a GraphQL variable, not a shell one
+            gh api graphql -F id="$item_id" -f query='query($id: ID!) { node(id: $id) { ... on ProjectV2Item {
+              fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { optionId } } } } }' \
+              --jq '.data.node.fieldValueByName.optionId // ""'
+          }
+          set_status
+          # The project's own "Item added to project" workflow sets a Status a few
+          # seconds after an add, over this one: watch for half a minute and set it back.
+          for _ in 1 2 3 4 5 6; do
+            sleep 5
+            if [ "$(current_status)" != "$option_id" ]; then
+              echo "Status changed by a project workflow; setting $STATUS again"
+              set_status
+            fi
+          done
+          echo "$PR_URL is on project $PROJECT_NUMBER as $STATUS"

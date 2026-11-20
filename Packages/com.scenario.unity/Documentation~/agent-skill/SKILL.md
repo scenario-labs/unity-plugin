@@ -20,13 +20,13 @@ Costs are in Creative Units (CU).
 - `generate`, `workflow_run` and `prompt_spark` are paid. Pass `max_cu` when the user gave a budget: above it nothing is sent.
 - Above the per-call limit or the session budget, the call waits up to two minutes for the user's **Approve** in Unity. Tell the user you are waiting. "Not approved" means nothing was sent; do not retry unless the user asks.
 - **Unknown outcome.** If a paid call returns "The outcome is unknown", the request may have run and been charged. Never call it again for the same request. Call `jobs` with its `local_id` a minute later.
-- If spending is off (Settings or `SCENARIO_NO_SPEND=1`), paid tools refuse before sending. Pricing, browsing, imports, uploads and scene tools still work.
-- `upload_reference`, `import_asset`, `models_find`, `motions_find`, `model_schema` and `estimate` are free.
+- If spending is off (Settings or `SCENARIO_NO_SPEND=1`), paid tools and uploads refuse before sending. Pricing, browsing, imports and scene tools still work.
+- `upload_reference`, `import_asset`, `models_find`, `motions_find`, `model_schema` and `estimate` cost no Creative Units; `upload_reference` is refused while spending is off.
 
 ## Pick a model
 
 - `models_find` with `output_type` (image, video, model3d, motion, audio, material, skybox) lists the catalog, including the team's own trained models.
-- `models_find` with `recommend_for_prompt` returns Scenario's ranked picks for a prompt, with cost and speed notes. Prefer it when the user did not name a model.
+- `models_find` with `recommended: true` returns Scenario's recommended models for the capability or output type. Prefer them when the user did not name a model.
 - `models_find` with `sort: "newest"` lists the most recently added models first, with the date each was added. Check it before settling on a model you already know: a newer one may do better.
 - `model_schema` gives the inputs: names, options, ranges, defaults, which inputs are files. Send only parameters the schema lists; unknown names are refused before pricing.
 
@@ -46,7 +46,7 @@ Costs are in Creative Units (CU).
 
 The result has `files` (Unity asset paths), `placed` (hierarchy paths), `asset_ids` (Scenario ids, reusable as inputs), `job_id`, `quoted_cu` and `charged_cu`. `place: false` imports without touching the scene. No call blocks longer than 45 s: 3D, video and long audio usually answer with `next` (still running). The job keeps going, imports and places itself; call `jobs` with `local_id` and `wait_seconds` until it is done, and never generate it again. For a batch, send each request with `wait: false`, then follow them with `jobs`.
 
-File inputs (reference images, a start frame, a 3D model, audio) take a Scenario asset id or a Unity asset path; Unity files are uploaded once, free.
+File inputs (reference images, a start frame, a 3D model, audio) take a Scenario asset id or a Unity asset path; Unity files are uploaded once, at no CU (not while spending is off).
 
 3D results, what to expect:
 

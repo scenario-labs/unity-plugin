@@ -137,4 +137,48 @@ Props, set pieces and the character for the world film, text and image routes; r
 | character, text | `model_tripo-p2-text-to-3d` | `job_jZLo7F9LwnePqxsWFAFf7QHi` | 220 | ok |
 | prompt spark, live shape check | `model_scenario-skybox-gpt` | `` | 0 | ok, recommended_prompt returned |
 
+
 Total 3,782 CU.
+
+## 2026-11-13 15:19 REST client, agent bridge run (pass)
+
+| Case | Model or workflow | Job | Quoted CU | Charged CU | Result |
+|---|---|---|---|---|---|
+| image through the agent bridge (`generate`) | `model_google-gemini-nano-banana-2-1` | `job_2A6rcubEjrBumS39PzvbHMba` | 9.75 | 8 | ok: a-stylized-wooden-treasure-chest-game-oajpx6.png; placed Stylized Wooden Treasure |
+
+Total 8 CU.
+
+## 2026-11-16 18:06 handbook story run (1 failure(s))
+
+| Case | Model or workflow | Job | Quoted CU | Charged CU | Result |
+|---|---|---|---|---|---|
+| story hunter | `model_meshy-7-1-txt23d` | `job_xphpTYQLsJUWjWbFBCD3L9cY` | 120 | 120 | ok: a-stylized-treasure-hunter-full-body-kfu8mn.glb |
+| story retexture | `model_meshy-7-retexture` | `job_kTj2vqQHewxtTp8AzvJioCMg` | 40 | 40 | ok: desert-explorer-sand-colored-linen-shirt-p9kbey.glb |
+| story rig | `model_meshy-rigging` | `job_eGgXoTesz62bLFcXeTiXvsDg` | 20 | 20 | ok: rig-the-treasure-hunter-48fdf3.glb, rig-the-treasure-hunter-ewzyfv.glb, rig-the-treasure-hunter-oq1g1b.glb |
+| story cheer | `model_meshy-animation` | `job_figo86UwvpP9mEDYyn6n2hSK` | 32 | 32 | ok: victory-cheer-8qntam.glb |
+| story dig | `model_uthana-text-to-motion-3.0` | `` | 228 | ? | FAIL not sent: 228 CU is above the cap of 150 |
+
+## 2026-11-16 18:13 handbook story run (pass)
+
+| Case | Model or workflow | Job | Quoted CU | Charged CU | Result |
+|---|---|---|---|---|---|
+| story dig | `model_uthana-text-to-motion-3.0` | `job_rQky59wUn7WBWZCZ5RdJL4Bo` | 228 | 228 | ok: looks-around-kneels-and-digs-in-the-sand-9xqazs.glb |
+| story sand | `model_patina-material` | `job_EVfwRhNPFNoGT4oHyPz78V5c` | 18.75 | 17 | ok: fine-desert-sand-with-small-pebbles-and-cysaz1-base.png, fine-desert-sand-with-small-pebbles-and-9mdzqg-albedo.png, fine-desert-sand-with-small-pebbles-and-wce26v-normal.png, fine-desert-sand-with-small-pebbles-and-jmclxt-roughness.png, fine-desert-sand-with-small-pebbles-and-uwjimh-metallic.png, fine-desert-sand-with-small-pebbles-and-du1evq-height.png |
+| story sky | `model_scenario-skybox-gpt` | `job_bNsXNJ4QmfJtxaTkwpJq5izk` | 33.75 | 32 | ok: a-desert-canyon-at-golden-hour-red-rock-uh2c5w-panorama.png |
+
+## 2026-11-16 18:17 handbook story run (pass)
+
+| Case | Model or workflow | Job | Quoted CU | Charged CU | Result |
+|---|---|---|---|---|---|
+| story chest | `model_rodin-hyper3d-v2-5-text-to-3d` | `job_ZUywsuVPgfVSXKnr4PZKZzx4` | 60 | 60 | ok: an-open-wooden-treasure-chest-yrqj27.glb |
+
+## 2026-11-17 17:37 handbook story run (pass)
+
+| Case | Model or workflow | Job | Quoted CU | Charged CU | Result |
+|---|---|---|---|---|---|
+| story dunes-sky | `model_scenario-skybox-gpt` | `job_ybhBr31cToB76iF4W84mNhpi` | 33.75 | 32 | ok: endless-golden-sand-dunes-rolling-to-the-3ao4cf-panorama.png |
+| story dunes-sky-4x | `model_sc-upscale-flux-skybox` | `job_Ae4xfW4fskWPN8HnxUmMV6DL` | 86.75 | 85 | ok: golden-sand-dunes-and-a-dramatic-golden-5fnmzv.png |
+| story clean-sand | `model_patina-material` | `job_rUi4PRnyF4RRHTARszTrdix5` | 18.75 | 17 | ok: fine-clean-golden-desert-sand-with-soft-68cbem-base.png, fine-clean-golden-desert-sand-with-soft-uh6m5x-albedo.png, fine-clean-golden-desert-sand-with-soft-xzof4m-normal.png, fine-clean-golden-desert-sand-with-soft-k3j76s-roughness.png, fine-clean-golden-desert-sand-with-soft-eqb6ex-metallic.png, fine-clean-golden-desert-sand-with-soft-o9urxb-height.png |
+| story rich-chest | `model_rodin-hyper3d-v2-5-text-to-3d` | `job_bYYrheqXeKn7RdnYXkyTjDak` | 60 | 60 | ok: an-open-ornate-wooden-treasure-chest-yw4k6h.glb |
+| story shovel | `model_rodin-hyper3d-v2-5-text-to-3d` | `job_j5Ti29xJgrXqEDjSvwFLHx3W` | 60 | 60 | ok: a-worn-shovel-with-a-long-wooden-handle-4rmgmk.glb |
+| story coins | `model_rodin-hyper3d-v2-5-text-to-3d` | `job_aRvt4ftNQnKYCbXgq4kaLGWN` | 60 | 60 | ok: a-low-scattered-pile-of-shiny-gold-coins-r4r7xt.glb |

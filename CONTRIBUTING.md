@@ -14,7 +14,7 @@ agents both follow.
 
 ## Set up
 
-- Unity 6000.3.21f1 (Unity Hub installs it from `ProjectSettings/ProjectVersion.txt`).
+- The Unity version in `ProjectSettings/ProjectVersion.txt` (Unity Hub offers to install it).
   Open the repository root as a project: the package is embedded in `Packages/`.
 - Node.js (the version in `.nvmrc`) and pnpm for commit lint: `pnpm install`.
 - [uv](https://docs.astral.sh/uv/) to rebuild the icons (`tools/build_icons.py`).
