@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/scenario-labs/unity-plugin/compare/unity-plugin-v0.3.0...unity-plugin-v0.3.1) (2026-11-20)
+
+
+### Miscellaneous Chores
+
+* **repo:** add the CodeRabbit configuration ([#226](https://github.com/scenario-labs/unity-plugin/issues/226)) ([12a4f8b](https://github.com/scenario-labs/unity-plugin/commit/12a4f8b37d0fc147d91c320066d288dcd1c7a828))
+
 ## [0.3.0](https://github.com/scenario-labs/unity-plugin/compare/unity-plugin-v0.2.0...unity-plugin-v0.3.0) (2026-11-20)
 
 
