@@ -38,3 +38,6 @@
 
 # Commit lint tooling
 /node_modules/
+
+# Release builds (tools/release/build-package.js)
+/dist/

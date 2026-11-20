@@ -34,6 +34,8 @@ namespace Scenario.Editor.Core
         public string ContentType;
         public double TimeoutSeconds = 60;
         public bool WantBytes;
+        /// <summary>False for calls that carry a credential: a redirect comes back as its 3xx reply.</summary>
+        public bool FollowRedirects = true;
     }
 
     /// <summary>
@@ -51,11 +53,12 @@ namespace Scenario.Editor.Core
     /// <summary>The real transport: one shared HttpClient, no cookies, no proxies beyond the system's.</summary>
     public sealed class HttpTransport : ITransport
     {
-        static readonly HttpClient Client = CreateClient();
+        static readonly HttpClient Client = CreateClient(true);
+        static readonly HttpClient NoRedirectClient = CreateClient(false);
 
-        static HttpClient CreateClient()
+        static HttpClient CreateClient(bool followRedirects)
         {
-            var handler = new HttpClientHandler { UseCookies = false, AllowAutoRedirect = true };
+            var handler = new HttpClientHandler { UseCookies = false, AllowAutoRedirect = followRedirects };
             return new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
         }
 
@@ -84,7 +87,8 @@ namespace Scenario.Editor.Core
                 }
                 try
                 {
-                    using (var response = await Client.SendAsync(message, HttpCompletionOption.ResponseContentRead, linked.Token).ConfigureAwait(false))
+                    var client = request.FollowRedirects ? Client : NoRedirectClient;
+                    using (var response = await client.SendAsync(message, HttpCompletionOption.ResponseContentRead, linked.Token).ConfigureAwait(false))
                     {
                         reply.Status = (int)response.StatusCode;
                         CopyHeaders(response, reply.Headers);

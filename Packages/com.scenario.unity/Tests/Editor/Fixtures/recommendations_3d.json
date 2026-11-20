@@ -1,0 +1,28 @@
+{
+  "models": [
+    {
+      "id": "model_meshy-7-1-txt23d",
+      "name": "Meshy 7.1 - Text-to-3D",
+      "shortDescription": "This is Meshy's current text-to-3D generator. Its higher geometry resolution tiers add finer surface detail, which suits carved wood grain, planks and metal banding, and it returns PBR maps for a realistic wood-and-iron look.",
+      "capabilities": [
+        "txt23d"
+      ]
+    },
+    {
+      "id": "model_rodin-hyper3d-v2-5-text-to-3d",
+      "name": "Rodin Gen-2.5 Text to 3D",
+      "shortDescription": "Rodin Gen-2.5 builds production-oriented meshes from text, with selectable quality tiers and PBR materials. The HighPack add-on upgrades textures to 4K, which helps on a detailed hero prop.",
+      "capabilities": [
+        "txt23d"
+      ]
+    },
+    {
+      "id": "model_tripo-p2-text-to-3d",
+      "name": "Tripo P2 Text to 3D",
+      "shortDescription": "Tripo P2 is a native 3D diffusion model that aims for clean topology. It responds well to concise subject-plus-material prompts like a wooden chest, and it offers PBR texturing and optional quad output.",
+      "capabilities": [
+        "txt23d"
+      ]
+    }
+  ]
+}

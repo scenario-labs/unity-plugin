@@ -39,7 +39,7 @@ export default {
       "always",
       [
         "core", // Editor/Core cross-cutting: results, JSON, files, transport
-        "mcp", // McpClient.cs and Sse.cs: Scenario MCP calls, sessions, replies
+        "client", // ApiClient.cs: Scenario REST API calls, retries, uploads
         "auth", // Auth.cs, OAuth.cs, CredentialStore.cs: sign-in and secrets
         "quote", // Quote.cs: prices, fingerprints, single-use quotes
         "jobs", // JobLedger.cs: durable job list, states, reconcile
@@ -53,6 +53,7 @@ export default {
         "tests", // test harness only; a test for a product area keeps the product scope
         "tools", // tools/ and Assets/ScenarioDev
         "docs", // README.md, Documentation~, docs/
+        "site", // pages.yml, tools/site_proxy and handbook.config.json: unity.scenario.com
         "ci", // .github/workflows
         "deps", // pins: Unity, packages, actions, npm
         "release", // release-please config and manifest, version fields, CHANGELOG plumbing
