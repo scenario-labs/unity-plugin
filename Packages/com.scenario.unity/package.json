@@ -1,6 +1,6 @@
 {
   "name": "com.scenario.unity",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "displayName": "Scenario",
   "description": "Generate images, video, 3D models, character animations, materials, skyboxes and audio with every Scenario model, inside the Unity Editor. Retexture, edit, remesh, rig, animate and split 3D models in place. Results land as wired Unity assets with their provenance. Agents (Claude Code, Codex, Cursor) can drive it through a local MCP server.",
   "unity": "6000.0",

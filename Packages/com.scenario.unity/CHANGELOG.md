@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.3.0](https://github.com/scenario-labs/unity-plugin/compare/unity-plugin-v0.2.0...unity-plugin-v0.3.0) (2026-11-20)
+
+
+### Features
+
+* **auth:** sign in as Unity's registered OAuth application, and on another device ([#202](https://github.com/scenario-labs/unity-plugin/issues/202)) ([9b76b69](https://github.com/scenario-labs/unity-plugin/commit/9b76b69d09aea556979bb53fdac49e22d00740ba))
+* **client:** call Scenario's REST API instead of the hosted MCP ([#209](https://github.com/scenario-labs/unity-plugin/issues/209)) ([9b76b69](https://github.com/scenario-labs/unity-plugin/commit/9b76b69d09aea556979bb53fdac49e22d00740ba))
+
+
+### Bug Fixes
+
+* **ui:** load the model again when the project changes ([#211](https://github.com/scenario-labs/unity-plugin/issues/211)) ([9b76b69](https://github.com/scenario-labs/unity-plugin/commit/9b76b69d09aea556979bb53fdac49e22d00740ba))
+
+
+### Documentation
+
+* **docs:** write the user handbook unity.scenario.com is built from ([#213](https://github.com/scenario-labs/unity-plugin/issues/213)) ([9b76b69](https://github.com/scenario-labs/unity-plugin/commit/9b76b69d09aea556979bb53fdac49e22d00740ba))
+* **repo:** move the roadmap to GitHub issues ([9b76b69](https://github.com/scenario-labs/unity-plugin/commit/9b76b69d09aea556979bb53fdac49e22d00740ba))
+* **site:** publish the handbook and the latest release's tarball at unity.scenario.com ([#210](https://github.com/scenario-labs/unity-plugin/issues/210)) ([9b76b69](https://github.com/scenario-labs/unity-plugin/commit/9b76b69d09aea556979bb53fdac49e22d00740ba))
+
+
+### Continuous Integration
+
+* **ci:** scan C# with Unity reference assemblies in CodeQL ([#225](https://github.com/scenario-labs/unity-plugin/issues/225)) ([194f7c5](https://github.com/scenario-labs/unity-plugin/commit/194f7c5cf363ff5c9e4b5f399a3c2ea155baf227))
+* **deps:** bump the actions group with 2 updates ([#203](https://github.com/scenario-labs/unity-plugin/issues/203)) ([ab1348e](https://github.com/scenario-labs/unity-plugin/commit/ab1348e3c86592af29279911714eece242f1e892))
+* **release:** count the next release from the 0.2 squash ([#206](https://github.com/scenario-labs/unity-plugin/issues/206)) ([9b76b69](https://github.com/scenario-labs/unity-plugin/commit/9b76b69d09aea556979bb53fdac49e22d00740ba))
+* **release:** publish release notes to the Scenario changelog and thank contributors ([#208](https://github.com/scenario-labs/unity-plugin/issues/208)) ([9b76b69](https://github.com/scenario-labs/unity-plugin/commit/9b76b69d09aea556979bb53fdac49e22d00740ba))
+* **release:** release with the release App token and publish the draft, as on blender-plugin ([#204](https://github.com/scenario-labs/unity-plugin/issues/204)) ([2fe26fb](https://github.com/scenario-labs/unity-plugin/commit/2fe26fb10c0112a3470bb6f88d344d378ae91cbc))
+
+
+### Tests
+
+* **tests:** save the restored user settings after each test ([#212](https://github.com/scenario-labs/unity-plugin/issues/212)) ([9b76b69](https://github.com/scenario-labs/unity-plugin/commit/9b76b69d09aea556979bb53fdac49e22d00740ba))
+* **tests:** use a synthetic pagination token in the jobs fixture ([9b76b69](https://github.com/scenario-labs/unity-plugin/commit/9b76b69d09aea556979bb53fdac49e22d00740ba))
+
+
+### Build System
+
+* **release:** attach a UPM tarball to each release ([#207](https://github.com/scenario-labs/unity-plugin/issues/207)) ([9b76b69](https://github.com/scenario-labs/unity-plugin/commit/9b76b69d09aea556979bb53fdac49e22d00740ba))
+* **release:** keep the version in package.json only ([#214](https://github.com/scenario-labs/unity-plugin/issues/214)) ([9b76b69](https://github.com/scenario-labs/unity-plugin/commit/9b76b69d09aea556979bb53fdac49e22d00740ba))
+
 ## [0.2.0](https://github.com/scenario-labs/unity-plugin/compare/unity-plugin-v0.1.0...unity-plugin-v0.2.0) (2026-10-19)
 
 
